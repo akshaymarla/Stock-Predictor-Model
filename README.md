@@ -11,7 +11,7 @@ progress — check the bottom of this file for the latest status.
 | `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data) |
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM + GSM both confirmed against live NSE data) |
 | `index_membership` | `src/fetch_index_membership.py` | Built, untested live (current-snapshot only, see caveat below) |
-| `corporate_announcements` | `src/fetch_corporate_announcements.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
+| `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
 | `shareholding_pattern` | — | Not started |
 
@@ -33,6 +33,15 @@ actually a network issue:
   all tested end-to-end with synthetic data shaped exactly like NSE's real
   response. The one thing NOT tested: the live call to NSE itself, since
   `nseindia.com` isn't reachable from the sandbox this was built in.
+
+- **`fetch_corporate_announcements.py`**: confirmed 2026-07-13 against a
+  live DevTools response — the original guessed field names (`symbol`,
+  `desc`, `attchmntText`, `attchmntFile`, `an_dt`) all matched exactly.
+  Schema/parsing updated to also capture `seq_id` (NSE's own unique
+  announcement id, now the primary key — more reliable than
+  symbol+date+time+subject) and `sm_isin` (stable identifier across symbol
+  renames). Tested end-to-end (including idempotent re-upsert) against the
+  real payload.
 
 - **`fetch_surveillance.py`**: the ASM/GSM endpoint paths
   (`/api/reportASM`, `/api/reportGSM1`) are the commonly documented ones,
@@ -75,7 +84,7 @@ python src/fetch_index_membership.py
 python src/backfill_prices.py --years 5
 # safe to re-run if interrupted -- it resumes via data/backfill_checkpoint.json
 
-# Corporate announcements -- UNVERIFIED, see status note in the script itself
+# Corporate announcements -- confirmed against live NSE data
 python src/fetch_corporate_announcements.py --from-date 01-07-2026 --to-date 13-07-2026
 
 # Financial results -- UNVERIFIED, see status note in the script itself
@@ -109,6 +118,14 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Confirmed `corporate_announcements` against a live NSE
+  DevTools response (see "What's actually been tested" above) — original
+  guessed field names all matched. Schema changed: primary key is now
+  `seq_id` (NSE's own unique announcement id) instead of
+  symbol+date+time+subject, and a new `isin` column captures `sm_isin`.
+  If you have a local `data/nifty_pipeline.db` from before this change,
+  delete it and re-run the fetch scripts — `CREATE TABLE IF NOT EXISTS`
+  won't retrofit the new column/key onto an existing table.
 - **2026-07-13**: Added `financial_results` table + fetch script
   (`src/fetch_financial_results.py`). Schema bakes in the point-in-time
   rule directly: `disclosure_date` (broadcast timestamp) is the required

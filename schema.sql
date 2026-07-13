@@ -48,17 +48,22 @@ CREATE TABLE IF NOT EXISTS index_membership (
 
 CREATE INDEX IF NOT EXISTS idx_index_membership_snapshot ON index_membership(snapshot_date);
 
+-- Confirmed 2026-07-13 against a live NSE DevTools response. seq_id is
+-- NSE's own unique announcement id -- a much more reliable dedupe key than
+-- (symbol, date, time, subject), which could theoretically collide.
 CREATE TABLE IF NOT EXISTS corporate_announcements (
+    seq_id            TEXT NOT NULL,    -- NSE's own unique id for this announcement
     symbol            TEXT NOT NULL,
-    announcement_date TEXT NOT NULL,   -- the knowledge-timestamp: when the market learned this
-    announcement_time TEXT,            -- HH:MM:SS if available, separate from date for clarity
-    subject           TEXT,            -- short headline/subject of the filing
-    details           TEXT,            -- longer description text, if provided
-    attachment_url    TEXT,            -- link to the underlying PDF filing, if any
-    category          TEXT,            -- controlled vocabulary, filled in later (NLP/manual pass)
-    source            TEXT NOT NULL,   -- 'NSE' or 'BSE'
+    isin              TEXT,             -- from sm_isin, stable identifier across symbol renames
+    announcement_date TEXT NOT NULL,    -- the knowledge-timestamp: when the market learned this
+    announcement_time TEXT,             -- HH:MM:SS if available, separate from date for clarity
+    subject           TEXT,             -- short headline/subject of the filing
+    details           TEXT,             -- longer description text, if provided
+    attachment_url    TEXT,             -- link to the underlying PDF filing, if any
+    category          TEXT,             -- controlled vocabulary, filled in later (NLP/manual pass)
+    source            TEXT NOT NULL,    -- 'NSE' or 'BSE'
     fetched_at        TEXT NOT NULL,
-    PRIMARY KEY (symbol, announcement_date, announcement_time, subject)
+    PRIMARY KEY (seq_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_corp_announcements_symbol ON corporate_announcements(symbol);

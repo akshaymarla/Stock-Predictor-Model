@@ -3,24 +3,23 @@ Fetches corporate announcements (the "ad hoc business decisions" table --
 M&A, management changes, board meetings, order wins, litigation, etc.)
 from NSE and loads them into `corporate_announcements`.
 
-STATUS: UNVERIFIED -- same situation we started ASM/GSM in.
-Rendered from https://www.nseindia.com/companies-listing/corporate-filings-announcements
-The endpoint URL and param below (`/api/corporate-announcements?index=equities`)
-are the pattern used by several working open-source NSE scrapers, but I have
-NOT confirmed the exact field names against a live response the way we did
-for ASM/GSM. Expect this to need one round of fixing:
-
-  1. Run it.
-  2. If it errors or the parsed row count is 0, open the page above in a
-     browser, DevTools -> Network -> XHR, find the real request, and send
-     me the URL + a sample response the same way you did for ASM/GSM --
-     I'll fix parse_announcements() to match.
-
-Likely field names based on common NSE announcement API conventions
-(UNCONFIRMED, just my best starting guess):
-    symbol, desc (subject line), attchmntText (details),
-    attchmntFile (PDF url), an_dt or sm_dt or dt (announcement datetime,
-    usually as one combined string like "10-Jul-2026 18:32:11")
+STATUS: CONFIRMED 2026-07-13 against a live DevTools response, e.g.:
+    {
+        "an_dt": "13-Jul-2026 12:50:53",
+        "attchmntFile": "https://nsearchives.nseindia.com/corporate/....pdf",
+        "attchmntText": "Dynamic Cables Limited has informed the Exchange...",
+        "desc": "Certificate under SEBI (Depositories and Participants) ...",
+        "seq_id": "106695428",
+        "sm_isin": "INE600Y01019",
+        "sm_name": "Dynamic Cables Limited",
+        "symbol": "DYCL",
+        ...
+    }
+The original guessed field names (symbol, desc, attchmntText, attchmntFile,
+an_dt) all matched the real response. Two extra confirmed fields worth
+capturing: seq_id (NSE's own unique announcement id -- a far more reliable
+dedupe key than symbol+date+time+subject) and sm_isin (stable identifier
+across symbol renames).
 
 Usage:
     python src/fetch_corporate_announcements.py --from-date 01-07-2026 --to-date 13-07-2026
@@ -60,13 +59,7 @@ def _extract_items(payload) -> list:
 
 
 def _split_datetime(raw) -> tuple:
-    """
-    Best guess: NSE tends to send combined datetime strings like
-    '10-Jul-2026 18:32:11'. Split into (date, time) matching our schema.
-    Falls back gracefully if the format doesn't match -- returns
-    (raw_string, None) rather than crashing, so a format surprise doesn't
-    kill the whole run; you'll see it in the data and can flag it to me.
-    """
+    """NSE sends combined datetime strings like '13-Jul-2026 12:50:53' in an_dt."""
     if not raw:
         return None, None
     for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
@@ -81,20 +74,16 @@ def _split_datetime(raw) -> tuple:
 def parse_announcements(payload, fetched_at: str) -> list[tuple]:
     rows = []
     for item in _extract_items(payload):
+        seq_id = item.get("seq_id")
         symbol = item.get("symbol")
-        # try a few plausible key names for the datetime field
-        raw_dt = (item.get("an_dt") or item.get("sm_dt") or item.get("dt")
-                  or item.get("broadcastDate") or item.get("date"))
-        if not symbol or not raw_dt:
+        raw_dt = item.get("an_dt")
+        if not seq_id or not symbol or not raw_dt:
             continue
         ann_date, ann_time = _split_datetime(raw_dt)
 
-        subject = item.get("desc") or item.get("subject") or item.get("attchmntText", "")
-        details = item.get("attchmntText") if item.get("desc") else None
-        attachment = item.get("attchmntFile") or item.get("attachmentUrl")
-
         rows.append((
-            symbol, ann_date, ann_time, subject, details, attachment,
+            seq_id, symbol, item.get("sm_isin"), ann_date, ann_time,
+            item.get("desc"), item.get("attchmntText"), item.get("attchmntFile"),
             None,  # category -- filled in later
             "NSE", fetched_at,
         ))
@@ -107,11 +96,10 @@ def upsert(conn, rows: list[tuple]):
     conn.executemany(
         """
         INSERT INTO corporate_announcements
-            (symbol, announcement_date, announcement_time, subject, details,
-             attachment_url, category, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(symbol, announcement_date, announcement_time, subject)
-        DO UPDATE SET fetched_at=excluded.fetched_at
+            (seq_id, symbol, isin, announcement_date, announcement_time,
+             subject, details, attachment_url, category, source, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(seq_id) DO UPDATE SET fetched_at=excluded.fetched_at
         """,
         rows,
     )
