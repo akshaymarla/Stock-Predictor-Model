@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS financial_results (
 CREATE INDEX IF NOT EXISTS idx_financial_results_symbol ON financial_results(symbol);
 CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_results(disclosure_date);
 
+-- Confirmed 2026-07-13 against a real HDFCBANK row. recordId is NSE's own
+-- unique row id -- same reasoning as seq_id in corporate_announcements,
+-- a more reliable dedupe key than symbol+disclosure_date+period_end_date.
 -- disclosure_date is broadcastDate ("Exchange Received Time" per NSE's own
 -- hover-table labels) -- the knowledge-timestamp, and the join key. Mirrors
 -- the choice already made in corporate_announcements (an_dt, the earlier of
@@ -103,7 +106,9 @@ CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_re
 -- dissemination_time (systemDate) is kept as an audit column for anyone who
 -- later wants the maximally conservative timestamp instead of broadcastDate.
 CREATE TABLE IF NOT EXISTS shareholding_pattern (
+    record_id           TEXT NOT NULL,   -- NSE's own unique id for this filing
     symbol              TEXT NOT NULL,
+    isin                TEXT,            -- stable identifier across symbol renames
     disclosure_date     TEXT NOT NULL,   -- broadcastDate -- join key
     period_end_date     TEXT,            -- "AS ON DATE" -- NOT a join key
     promoter_pct        REAL,            -- pr_and_prgrp
@@ -116,7 +121,7 @@ CREATE TABLE IF NOT EXISTS shareholding_pattern (
     attachment_url      TEXT,            -- xbrl filing link
     source              TEXT NOT NULL,   -- 'NSE' or 'BSE'
     fetched_at          TEXT NOT NULL,
-    PRIMARY KEY (symbol, disclosure_date, period_end_date)
+    PRIMARY KEY (record_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_shareholding_symbol ON shareholding_pattern(symbol);

@@ -13,7 +13,7 @@ progress — check the bottom of this file for the latest status.
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
-| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, **not working yet** — field names are real (from a live DevTools column-config response), but a live run confirms the guessed endpoint URL is wrong (200s with a non-JSON body); needs the real XHR URL from DevTools |
+| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, **field names + values confirmed** against a real HDFCBANK row, but still not runnable — the endpoint URL is confirmed wrong (200s with a non-JSON body); needs the real XHR Request URL from DevTools |
 
 ## Setup
 
@@ -82,28 +82,24 @@ actually a network issue:
   errors, same fix path as the other unverified scripts — DevTools capture
   needed.
 
-- **`fetch_shareholding_pattern.py`**: partially confirmed 2026-07-13.
-  NSE's own column-config response (for the shareholding pattern page,
-  `?symbol=HDFCBANK`) confirmed the real field names (`pr_and_prgrp`,
-  `public_val`, `employeeTrusts`, `revisedStatus`, `date`,
-  `submissionDate`, `revisionDate`, `xbrl`, `broadcastDate`, `systemDate`)
-  — but that response only described the columns, not an actual data row,
-  so exact value formats (percentage as bare number vs. string, `xbrl` as
-  a plain URL vs. object) are still a best guess. The actual XHR endpoint
-  URL is also unconfirmed — `ENDPOINT_URL` in the script is a guess
-  following this repo's other `/api/corporate-*` pattern, not something
-  seen in DevTools yet. `disclosure_date` uses `broadcastDate` ("Exchange
-  Received Time"), matching the convention already used in
-  `corporate_announcements`, not `date` (NSE's "AS ON DATE" snapshot
-  period) or `submissionDate` (can precede public dissemination). Parsing
-  and idempotent upsert tested end-to-end with synthetic data shaped like
-  the confirmed field names. **Live run confirms `ENDPOINT_URL` is wrong**
-  — it 200s but returns a non-JSON body (likely an HTML page), so the
-  guessed `/api/corporate-share-holdings-master` path doesn't exist as-is.
-  Added a diagnostic that prints the raw response body on a JSON-decode
-  failure instead of a cryptic error, so the next run's stderr output will
-  show what NSE actually returned — need that plus the real DevTools XHR
-  URL for the shareholding pattern page to fix this.
+- **`fetch_shareholding_pattern.py`**: field names AND values confirmed
+  2026-07-13 against a real HDFCBANK row (`recordId`, `isin`,
+  `broadcastDate`, `date`, `pr_and_prgrp`, `public_val`, `employeeTrusts`,
+  `revisedStatus`, `submissionDate`, `systemDate`, `xbrl`, all present and
+  matching the original guesses). Dates use uppercase month abbreviations
+  ("03-JUL-2026") — confirmed Python's `strptime %b` is case-insensitive,
+  so no parsing change was needed. Percentages are bare numeric strings
+  ("0", "100"), `xbrl` is a plain URL string. Schema updated to add
+  `record_id` (NSE's own unique row id, now the primary key, same
+  reasoning as `seq_id` in `corporate_announcements`) and `isin`.
+  `disclosure_date` uses `broadcastDate`, matching the
+  `corporate_announcements` convention. Parsing and idempotent upsert
+  tested end-to-end against the real row (both plausible wrapper shapes).
+  **Still not runnable**: the actual XHR endpoint URL was never captured
+  alongside this real data row, and a separate live run already confirmed
+  the guessed `ENDPOINT_URL` returns a non-JSON 200 response. Need the
+  real Request URL from DevTools (Network tab → Fetch/XHR, find the
+  request whose response matches the shape above) to finish this.
 
 ## Usage
 
@@ -164,6 +160,20 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Confirmed `shareholding_pattern`'s field names AND
+  values against a real HDFCBANK row (see "What's actually been tested"
+  above). Schema changed: primary key is now `record_id` (NSE's own
+  unique row id) instead of symbol+disclosure_date+period_end_date, and a
+  new `isin` column captures it. Still can't run this end-to-end — the
+  real XHR endpoint URL is still missing, and a live run already confirmed
+  the guessed one is wrong.
+- **2026-07-13**: Fixed `fetch_corporate_announcements.py --years 5`
+  timing out (`Read timed out (read timeout=15)`) on a live run — a
+  single request for 5 years of market-wide announcements was too much
+  for NSE to return in time. Now chunks any date range into <=90-day
+  windows, upserting after each chunk (so one slow/failed chunk doesn't
+  lose progress on the rest) and using a 30s per-chunk timeout. The
+  single-day nightly case is unaffected (still exactly one request).
 - **2026-07-13**: `fetch_corporate_announcements.py`'s `--from-date`/
   `--to-date` are now optional (default to today only, matching the
   nightly use case), plus a `--years` shortcut for a one-time historical

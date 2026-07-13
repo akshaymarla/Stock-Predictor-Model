@@ -3,28 +3,38 @@ Fetches shareholding pattern disclosures (promoter/public/employee-trust
 split, filed quarterly per SEBI regulations) from NSE and loads them into
 `shareholding_pattern`.
 
-STATUS: PARTIALLY CONFIRMED, 2026-07-13. Field NAMES below come from a real
-NSE DevTools response -- the "columns" config NSE returns for
-https://www.nseindia.com/companies-listing/corporate-filings-shareholding-pattern?symbol=HDFCBANK
-which lists the real keys each data row uses: name, pr_and_prgrp,
-public_val, employeeTrusts, revisedStatus, date, submissionDate,
-revisionDate, xbrl, broadcastDate, systemDate, timeDifference.
+STATUS: FIELD NAMES + VALUES CONFIRMED 2026-07-13 against a real HDFCBANK
+row:
+    {
+        "broadcastDate": "03-JUL-2026 14:33:54", "date": "30-JUN-2026",
+        "employeeTrusts": "0", "isin": "INE040A01018",
+        "name": "HDFC Bank Limited", "pr_and_prgrp": "0",
+        "public_val": "100", "recordId": "210483", "revisedStatus": "-",
+        "submissionDate": "03-JUL-2026", "symbol": "HDFCBANK",
+        "systemDate": "03-JUL-2026 14:33:57",
+        "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/....xml",
+        ...
+    }
+All originally-guessed field names matched. Notes from the real row:
+  - Dates use UPPERCASE month abbreviations ("JUL" not "Jul") --
+    Python's strptime %b is case-insensitive, so _to_iso_date() already
+    handles this with no change needed.
+  - percentages are bare numeric strings ("0", "100"), not "0%" -- already
+    handled by _to_float()'s defensive "%"-stripping.
+  - xbrl is a plain URL string, not a nested object.
+  - recordId (NSE's own unique row id) and isin are both present and now
+    captured -- see schema.sql for why recordId is the primary key.
 
-What's NOT yet confirmed:
-  - The actual XHR API endpoint URL (the URL above is the page, not the
-    API call the page makes under the hood -- same situation
-    corporate-announcements started in). ENDPOINT_URL below is a guess
-    following this repo's other /api/corporate-* endpoints.
-  - The exact VALUE formats (e.g. is pr_and_prgrp a bare number, a string
-    with "%", does xbrl come back as a plain URL string or a nested
-    object) -- we only got the column config, not a sample data row.
-
-Expect one round of fixing, same as the other scripts:
-  1. Run it.
-  2. If it errors or the parsed row count is 0, open the page above in a
-     browser, DevTools -> Network -> XHR, find the real request, and send
-     me the URL + a sample response -- I'll fix parse_shareholding() and
-     ENDPOINT_URL to match.
+STILL NOT CONFIRMED: the actual XHR API endpoint URL. The real data row
+above came from DevTools but without a captured Request URL, so
+ENDPOINT_URL below remains the original guess
+(`/api/corporate-share-holdings-master`), which a live run already showed
+returns a non-JSON 200 response -- i.e. it's confirmed WRONG, just not
+yet replaced with the right one.
+  1. Open the shareholding pattern page in a browser, DevTools -> Network
+     -> Fetch/XHR, reload, and find the request whose response is the
+     real data (matches the shape above) -- copy its Request URL.
+  2. Send me that URL and I'll fix ENDPOINT_URL.
 
 POINT-IN-TIME NOTE: disclosure_date uses broadcastDate ("Exchange Received
 Time" per NSE's own hover-table label), not `date` (which is NSE's "AS ON
@@ -101,14 +111,15 @@ def _attachment_url(raw):
 def parse_shareholding(payload, symbol: str, fetched_at: str) -> list[tuple]:
     rows = []
     for item in _extract_items(payload):
+        record_id = item.get("recordId")
         raw_disclosure = item.get("broadcastDate")
         period_end = _to_iso_date(item.get("date"))
-        if not raw_disclosure or not period_end:
+        if not record_id or not raw_disclosure or not period_end:
             continue
         disclosure_date = _to_iso_date(raw_disclosure)
 
         rows.append((
-            symbol, disclosure_date, period_end,
+            record_id, symbol, item.get("isin"), disclosure_date, period_end,
             _to_float(item.get("pr_and_prgrp")),
             _to_float(item.get("public_val")),
             _to_float(item.get("employeeTrusts")),
@@ -128,11 +139,11 @@ def upsert(conn, rows: list[tuple]):
     conn.executemany(
         """
         INSERT INTO shareholding_pattern
-            (symbol, disclosure_date, period_end_date, promoter_pct, public_pct,
-             employee_trust_pct, status, submission_date, revision_date,
+            (record_id, symbol, isin, disclosure_date, period_end_date, promoter_pct,
+             public_pct, employee_trust_pct, status, submission_date, revision_date,
              dissemination_time, attachment_url, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(symbol, disclosure_date, period_end_date) DO UPDATE SET
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(record_id) DO UPDATE SET
             promoter_pct=excluded.promoter_pct,
             public_pct=excluded.public_pct,
             employee_trust_pct=excluded.employee_trust_pct,

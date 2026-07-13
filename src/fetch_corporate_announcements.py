@@ -97,6 +97,21 @@ def parse_announcements(payload, fetched_at: str) -> list[tuple]:
     return rows
 
 
+def _date_chunks(from_date: datetime, to_date: datetime, chunk_days: int = 90):
+    """Split [from_date, to_date] into <=chunk_days windows. NSE's
+    corporate-announcements endpoint appears to choke (timeout, or possibly
+    an undocumented range cap) on multi-year single requests -- a 5-year
+    ask timed out at 15s. Chunking keeps each request small regardless of
+    total range; for a single-day nightly call this is just one chunk, so
+    behavior there is unchanged."""
+    chunk = timedelta(days=chunk_days)
+    start = from_date
+    while start <= to_date:
+        end = min(start + chunk, to_date)
+        yield start, end
+        start = end + timedelta(days=1)
+
+
 def upsert(conn, rows: list[tuple]):
     if not rows:
         return
@@ -124,40 +139,50 @@ def main():
 
     today = datetime.now()
     if args.years:
-        from_date = (today - timedelta(days=int(args.years * 365.25))).strftime("%d-%m-%Y")
-        to_date = today.strftime("%d-%m-%Y")
+        from_date = today - timedelta(days=int(args.years * 365.25))
+        to_date = today
     else:
-        from_date = args.from_date or today.strftime("%d-%m-%Y")
-        to_date = args.to_date or today.strftime("%d-%m-%Y")
+        from_date = (datetime.strptime(args.from_date, "%d-%m-%Y") if args.from_date
+                     else today)
+        to_date = (datetime.strptime(args.to_date, "%d-%m-%Y") if args.to_date
+                   else today)
 
     fetched_at = datetime.now().isoformat()
     conn = get_conn()
     session = make_session()
 
-    params = {
-        "index": "equities",
-        "from_date": from_date,
-        "to_date": to_date,
-    }
-    try:
-        resp = session.get(ANNOUNCEMENTS_URL, params=params, timeout=15)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        print(f"FAILED: {e}", file=sys.stderr)
-        print("See the STATUS note at the top of this file for how to fix it.",
-              file=sys.stderr)
+    chunks = list(_date_chunks(from_date, to_date))
+    total_upserted = 0
+    for i, (chunk_from, chunk_to) in enumerate(chunks):
+        label = f"{chunk_from:%d-%m-%Y} to {chunk_to:%d-%m-%Y}"
+        print(f"[{i+1}/{len(chunks)}] fetching {label} ...")
+        params = {
+            "index": "equities",
+            "from_date": chunk_from.strftime("%d-%m-%Y"),
+            "to_date": chunk_to.strftime("%d-%m-%Y"),
+        }
+        try:
+            resp = session.get(ANNOUNCEMENTS_URL, params=params, timeout=30)
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as e:
+            print(f"    FAILED for {label}: {e}", file=sys.stderr)
+            print("    See the STATUS note at the top of this file for how to fix it.",
+                  file=sys.stderr)
+            continue
+
+        rows = parse_announcements(payload, fetched_at)
+        upsert(conn, rows)
+        total_upserted += len(rows)
+        print(f"    got {len(rows)} rows")
+
+    if total_upserted == 0:
+        print("Parsed 0 rows across all chunks -- field names in "
+              "parse_announcements() are probably wrong. Grab a real "
+              "response via DevTools and send it over.", file=sys.stderr)
         sys.exit(1)
 
-    rows = parse_announcements(payload, fetched_at)
-    if not rows:
-        print("Parsed 0 rows -- field names in parse_announcements() are "
-              "probably wrong. Grab a real response via DevTools and send "
-              "it over.", file=sys.stderr)
-        sys.exit(1)
-
-    upsert(conn, rows)
-    print(f"Done. Upserted {len(rows)} announcement rows.")
+    print(f"Done. Upserted {total_upserted} announcement rows.")
 
 
 if __name__ == "__main__":
