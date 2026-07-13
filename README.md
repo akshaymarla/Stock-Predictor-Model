@@ -12,7 +12,7 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM + GSM both confirmed against live NSE data) |
 | `index_membership` | `src/fetch_index_membership.py` | Built, untested live (current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
-| `financial_results` | — | Not started |
+| `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
 | `shareholding_pattern` | — | Not started |
 
 ## Setup
@@ -44,6 +44,19 @@ actually a network issue:
   ASM/GSM page in a browser, check DevTools → Network for the real
   request, send it my way).
 
+- **`fetch_financial_results.py`**: same situation as
+  `fetch_corporate_announcements.py` — field names
+  (`re_broadcast_timestamp`, `re_end_date`, `re_cons`, etc.) are a best
+  guess, not confirmed against a live response. `parse_results()` and the
+  idempotent upsert were tested end-to-end with synthetic NSE-shaped
+  payloads (including a re-upsert to confirm no duplicate rows). The
+  point-in-time discipline is baked into the schema itself:
+  `disclosure_date` (broadcast timestamp) is the join key, `period_end_date`
+  (fiscal quarter-end) is descriptive-only and must never be used to
+  determine what was "known as of" a date. If the live endpoint 0-rows or
+  errors, same fix path as the other unverified scripts — DevTools capture
+  needed.
+
 ## Usage
 
 ```bash
@@ -64,6 +77,9 @@ python src/backfill_prices.py --years 5
 
 # Corporate announcements -- UNVERIFIED, see status note in the script itself
 python src/fetch_corporate_announcements.py --from-date 01-07-2026 --to-date 13-07-2026
+
+# Financial results -- UNVERIFIED, see status note in the script itself
+python src/fetch_financial_results.py --from-date 01-04-2026 --to-date 13-07-2026
 
 # Nightly job (surveillance + membership snapshot + latest day's prices for whole universe)
 ./run_nightly.sh
@@ -93,6 +109,14 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Added `financial_results` table + fetch script
+  (`src/fetch_financial_results.py`). Schema bakes in the point-in-time
+  rule directly: `disclosure_date` (broadcast timestamp) is the required
+  join key, `period_end_date` (fiscal quarter-end) is descriptive-only.
+  Field names are an unverified best guess (same caveat as
+  `corporate_announcements`) — parsing and idempotent upsert tested with
+  synthetic data, live endpoint not yet confirmed. Also fixed a permission
+  regression on `run_nightly.sh` (lost its executable bit).
 - **2026-07-13**: Added `CLAUDE.md` so Claude Code (VSCode extension) has
   persistent project context — it doesn't share memory with claude.ai
   conversations, so this file is now the bridge between the two.

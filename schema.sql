@@ -63,3 +63,27 @@ CREATE TABLE IF NOT EXISTS corporate_announcements (
 
 CREATE INDEX IF NOT EXISTS idx_corp_announcements_symbol ON corporate_announcements(symbol);
 CREATE INDEX IF NOT EXISTS idx_corp_announcements_date ON corporate_announcements(announcement_date);
+
+-- disclosure_date is the knowledge-timestamp (when NSE broadcast the result
+-- to the market) -- joins for "what did we know as of date D" MUST filter on
+-- this, never on period_end_date. period_end_date (the fiscal quarter/year
+-- being reported on) is descriptive only; results for a quarter ending
+-- months ago can be disclosed today, and using period_end_date to join would
+-- leak that lag into a backtest.
+CREATE TABLE IF NOT EXISTS financial_results (
+    symbol           TEXT NOT NULL,
+    disclosure_date  TEXT NOT NULL,   -- when the result was filed/broadcast -- join key
+    period_end_date  TEXT,            -- fiscal period being reported on -- NOT a join key
+    period_type      TEXT,            -- e.g. 'Q1', 'Q2', 'Q3', 'Q4', 'ANNUAL'
+    result_type      TEXT NOT NULL,   -- 'STANDALONE' or 'CONSOLIDATED'
+    revenue          REAL,
+    net_profit       REAL,
+    eps              REAL,
+    attachment_url   TEXT,            -- link to the underlying PDF filing, if any
+    source           TEXT NOT NULL,   -- 'NSE' or 'BSE'
+    fetched_at       TEXT NOT NULL,
+    PRIMARY KEY (symbol, disclosure_date, period_end_date, result_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_results_symbol ON financial_results(symbol);
+CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_results(disclosure_date);
