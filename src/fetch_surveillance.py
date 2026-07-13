@@ -74,25 +74,16 @@ def parse_asm(payload, fetched_at: str) -> list[tuple]:
     }, ...]}
     """
     rows = []
-    for item in payload.get("longterm",{}).get("data",{}):
-        symbol = item.get("symbol")
-        stage_raw = item.get("asmSurvIndicator", "")
-        stage = stage_raw.replace(" ", "_").upper() or "UNKNOWN"
-        start_date_raw = item.get("asmTime")
-        if not symbol or not start_date_raw:
-            continue
-        start_date = _normalize_date(start_date_raw)
-        rows.append((symbol, f"ASM_{stage}", start_date, None, "NSE", fetched_at))
-    
-    for item in payload.get("shortterm",{}).get("data",{}):
-        symbol = item.get("symbol")
-        stage_raw = item.get("asmSurvIndicator", "")
-        stage = stage_raw.replace(" ", "_").upper() or "UNKNOWN"
-        start_date_raw = item.get("asmTime")
-        if not symbol or not start_date_raw:
-            continue
-        start_date = _normalize_date(start_date_raw)
-        rows.append((symbol, f"ASM_{stage}", start_date, None, "NSE", fetched_at))
+    for pre_endpoint in ["longterm","shortterm"]:
+        for item in payload.get(pre_endpoint,{}).get("data",{}):
+            symbol = item.get("symbol")
+            stage_raw = item.get("asmSurvIndicator", "")
+            stage = stage_raw.replace(" ", "_").upper() or "UNKNOWN"
+            start_date_raw = item.get("asmTime")
+            if not symbol or not start_date_raw:
+                continue
+            start_date = _normalize_date(start_date_raw)
+            rows.append((symbol, f"ASM_{stage}", start_date, None, "NSE", fetched_at))
 
     return rows
 
