@@ -2,21 +2,27 @@
 Fetches the ASM/GSM surveillance lists from NSE and loads them into
 `surveillance_flags`.
 
-HONESTY NOTE (read this before running):
-Unlike fetch_daily_prices.py, there's no maintained library wrapping this
-endpoint, so this hits NSE's API directly. NSE's site requires you to first
-load nseindia.com in a browser-like session to get valid cookies before its
-/api/* endpoints will respond -- hitting the API cold usually gets a 401/403.
-The endpoint paths below (reportASM / reportGSM1) are the commonly
-documented ones as of my knowledge, but NSE changes these without notice
-and I could NOT verify them live (nseindia.com isn't reachable from the
-sandbox this was built in). Treat this file as a solid *starting point*,
-not a guaranteed-working script:
-  1. Run it.
-  2. If it 401s/403s or the JSON shape doesn't match, open nseindia.com's
-     ASM/GSM page in a browser, open DevTools -> Network tab, find the
-     actual XHR request, and paste me the real URL + response shape --
-     I'll fix the parsing in a minute.
+STATUS: CONFIRMED 2026-07-13 against a live run. ASM's real shape is
+nested by ASM category, NOT a flat {"data": [...]} like GSM:
+    {"longterm": {"data": [{
+        "symbol": "21STCENMGM", "companyName": "...", "isin": "...",
+        "series": null, "survCode": "LTASM - I (13)",
+        "survDesc": "Long Term Additional Surveillance Measure (LTASM) - Stage I",
+        "asmSurvIndicator": "Stage I", "asmTime": "13-Jul-2026", "srno": 1
+    }, ...]}}
+"shortterm" (short-term ASM, as opposed to "longterm"/LTASM above) is
+assumed to be a sibling key with the same {"data": [...]} shape -- that's
+an educated guess by naming symmetry, not yet seen in a live response
+(the live run that confirmed "longterm" happened to have 0 short-term
+flags). If it turns out to be named differently, short-term ASM flags will
+silently be skipped -- symbol/date extraction itself won't break.
+
+GSM's real response was `[]` -- a bare JSON list, empty because NSE
+currently has 0 GSM-flagged symbols. That's a legitimate result, not a
+bug: _extract_gsm_items() already handles a raw list correctly. We don't
+yet have a confirmed non-empty GSM sample, so the field names in
+parse_gsm() (gsmStage, gsmTime, etc.) remain an unconfirmed guess until
+GSM has flags again.
 
 Usage:
     python src/fetch_surveillance.py
@@ -48,33 +54,32 @@ def make_session() -> requests.Session:
     return s
 
 
-def _extract_items(payload) -> list:
-    """
-    Handle both possible shapes defensively: {"data": [...]} or a raw list.
-    Confirmed for ASM (2026-07-10, real response): wrapped under "data".
-    Assuming GSM matches the same wrapper convention until confirmed --
-    flag me if reportGSM1 turns out to be a raw list instead.
-    """
-    if isinstance(payload, dict):
-        return payload.get("data", [])
+def _extract_asm_items(payload) -> list:
+    """ASM is nested by category: {"longterm": {"data": [...]}, "shortterm": {"data": [...]}}.
+    "shortterm" is an unconfirmed guess by naming symmetry -- see STATUS note."""
+    if not isinstance(payload, dict):
+        return []
+    items = []
+    for key in ("shortterm", "longterm"):
+        section = payload.get(key)
+        if isinstance(section, dict):
+            items.extend(section.get("data", []))
+    return items
+
+
+def _extract_gsm_items(payload) -> list:
+    """Confirmed live: a bare JSON list (currently empty). Handle a {"data": [...]}
+    wrapper too, defensively, in case that changes."""
     if isinstance(payload, list):
         return payload
+    if isinstance(payload, dict):
+        return payload.get("data", [])
     return []
 
 
 def parse_asm(payload, fetched_at: str) -> list[tuple]:
-    """
-    Confirmed real response shape (checked against a live NSE response,
-    2026-07-10):
-    {"data": [{
-        "symbol": "ASTRAMICRO", "companyName": "...", "isin": "...",
-        "series": null, "survCode": "LTASM - I (13)",
-        "survDesc": "Long Term Additional Surveillance Measure (LTASM) - Stage I",
-        "asmSurvIndicator": "Stage I", "asmTime": "10-Jul-2026", "srno": 19
-    }, ...]}
-    """
     rows = []
-    for item in _extract_items(payload):
+    for item in _extract_asm_items(payload):
         symbol = item.get("symbol")
         stage_raw = item.get("asmSurvIndicator", "")
         stage = stage_raw.replace(" ", "_").upper() or "UNKNOWN"
@@ -88,22 +93,24 @@ def parse_asm(payload, fetched_at: str) -> list[tuple]:
 
 def parse_gsm(payload, fetched_at: str) -> list[tuple]:
     """
-    Confirmed real response shape (checked against a live NSE response,
-    2026-07-10). Note this differs from ASM's shape in two ways:
-      - "gsmStage" is a bare number string ("0", "1", "2"...), not text
-        like ASM's "Stage I"
-      - "gsmTime" includes a timestamp ("10-Jul-2026 08:08:02"), not just
-        a date -- _normalize_date() below handles both formats.
-    {"data": [{
+    UNCONFIRMED item shape -- the wrapper shape (bare list) IS confirmed
+    live (2026-07-13, see STATUS note at top of file), but the live
+    response was an empty list, so the field names below (gsmStage,
+    gsmTime, etc.) are still the original best guess, not yet checked
+    against a real GSM-flagged entry:
+    [{
         "symbol": "BALKRISHNA", "companyName": "...", "isin": "...",
         "gsmStage": "0", "gsmTime": "10-Jul-2026 08:08:02",
         "survCode": "GSM - 0 (99)",
         "survDesc": "Shortlisted under Graded Surveillance Measure",
         "srno": 7
-    }, ...]}
+    }, ...]
+    If this ever parses to 0 rows while the raw payload (printed to stderr
+    by main()) shows a non-empty list, these field names are wrong --
+    send me a real entry and I'll fix it.
     """
     rows = []
-    for item in _extract_items(payload):
+    for item in _extract_gsm_items(payload):
         symbol = item.get("symbol")
         stage = item.get("gsmStage", "UNKNOWN")
         start_date_raw = item.get("gsmTime")

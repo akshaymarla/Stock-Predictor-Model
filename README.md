@@ -9,7 +9,7 @@ progress — check the bottom of this file for the latest status.
 | Table | Script | Status |
 |---|---|---|
 | `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data) |
-| `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM + GSM both confirmed against live NSE data) |
+| `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
@@ -43,15 +43,19 @@ actually a network issue:
   renames). Tested end-to-end (including idempotent re-upsert) against the
   real payload.
 
-- **`fetch_surveillance.py`**: the ASM/GSM endpoint paths
-  (`/api/reportASM`, `/api/reportGSM1`) are the commonly documented ones,
-  but I could not verify them live for the same reason. The parsing,
-  date-normalization, and upsert logic are tested with synthetic
-  NSE-shaped data. If the live endpoint 401s, 403s, or returns a
-  different JSON shape than expected, that's expected — see the
-  "HONESTY NOTE" at the top of the file for how to fix it (open NSE's
-  ASM/GSM page in a browser, check DevTools → Network for the real
-  request, send it my way). Note: this script never took a symbol list
+- **`fetch_surveillance.py`**: fixed 2026-07-13 after a live run showed
+  "parsed 0 flagged symbols" for both ASM and GSM. Root cause for ASM: the
+  real response is nested by category (`{"longterm": {"data": [...]}}`),
+  not the flat `{"data": [...]}` the code assumed — fixed and verified
+  against the real payload. GSM's `[]` was never a bug — NSE currently has
+  0 GSM-flagged symbols, and the existing raw-list handling already
+  parses that correctly as zero rows. GSM's item field names
+  (`gsmStage`, `gsmTime`, etc.) are still unconfirmed since we haven't
+  seen a real non-empty GSM response yet — the earlier "confirmed
+  2026-07-10" claim in this file was inaccurate; corrected. If GSM parses
+  to 0 rows while the diagnostic (added this same day) shows a non-empty
+  raw payload, that's the field names being wrong, not an empty list.
+  Note: this script never took a symbol list
   (no `--symbols` arg) — it pulls NSE's whole current ASM/GSM flagged list
   directly, so `index_membership` becoming live doesn't change anything
   here. The script that *did* need a hardcoded symbol list
@@ -150,14 +154,19 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
-- **2026-07-13**: `fetch_surveillance.py` was returning "parsed 0 flagged
-  symbols" for both ASM and GSM on a live run. Added a diagnostic: when a
-  request succeeds (200 OK, valid JSON) but parses to 0 rows, it now
-  prints the raw response body (first 500 chars) to stderr, so the next
-  run reveals whether NSE changed the response shape, blocked the session
-  silently, or genuinely has 0 flagged symbols right now — instead of
-  guessing blind. Root cause not yet identified; need that diagnostic
-  output from a real run to fix `parse_asm()`/`parse_gsm()`.
+- **2026-07-13**: Fixed `fetch_surveillance.py`'s ASM parsing using the
+  raw-response diagnostic added earlier today. Real shape is nested by
+  category (`{"longterm": {"data": [...]}}`), not flat — `parse_asm()`
+  updated and verified against the real payload. GSM's `parsed 0 flagged
+  symbols` was not a bug (NSE currently has 0 GSM flags, response is a
+  genuinely empty `[]`); corrected an inaccurate "confirmed" claim about
+  GSM's item field names that predates this session — they remain
+  unconfirmed until a non-empty GSM response is seen. Also clarified: the
+  "errors" reported for `fetch_daily_prices.py`, `fetch_corporate_announcements.py`,
+  and `fetch_shareholding_pattern.py` were argparse rejecting a run with
+  no CLI arguments (from VSCode's Code Runner, which doesn't pass any) —
+  not script bugs. Those need to be run from a terminal with real
+  `--symbols`/`--from-date`/`--to-date` args, per the Usage section below.
 - **2026-07-13**: Added `shareholding_pattern` table + fetch script
   (`src/fetch_shareholding_pattern.py`). Field names confirmed from a real
   NSE column-config response (`pr_and_prgrp`, `public_val`,
