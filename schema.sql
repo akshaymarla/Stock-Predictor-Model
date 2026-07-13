@@ -92,3 +92,32 @@ CREATE TABLE IF NOT EXISTS financial_results (
 
 CREATE INDEX IF NOT EXISTS idx_financial_results_symbol ON financial_results(symbol);
 CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_results(disclosure_date);
+
+-- disclosure_date is broadcastDate ("Exchange Received Time" per NSE's own
+-- hover-table labels) -- the knowledge-timestamp, and the join key. Mirrors
+-- the choice already made in corporate_announcements (an_dt, the earlier of
+-- two near-identical timestamps). period_end_date (NSE's "AS ON DATE") is
+-- the shareholding snapshot date being reported on -- descriptive only,
+-- never a join key. submission_date is when the company filed with the
+-- exchange, which can precede public dissemination -- also not join-safe.
+-- dissemination_time (systemDate) is kept as an audit column for anyone who
+-- later wants the maximally conservative timestamp instead of broadcastDate.
+CREATE TABLE IF NOT EXISTS shareholding_pattern (
+    symbol              TEXT NOT NULL,
+    disclosure_date     TEXT NOT NULL,   -- broadcastDate -- join key
+    period_end_date     TEXT,            -- "AS ON DATE" -- NOT a join key
+    promoter_pct        REAL,            -- pr_and_prgrp
+    public_pct          REAL,            -- public_val
+    employee_trust_pct  REAL,            -- employeeTrusts
+    status              TEXT,            -- revisedStatus
+    submission_date     TEXT,            -- when filed -- descriptive only, NOT a join key
+    revision_date       TEXT,            -- set if this filing was later revised
+    dissemination_time  TEXT,            -- systemDate -- audit column, see note above
+    attachment_url      TEXT,            -- xbrl filing link
+    source              TEXT NOT NULL,   -- 'NSE' or 'BSE'
+    fetched_at          TEXT NOT NULL,
+    PRIMARY KEY (symbol, disclosure_date, period_end_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shareholding_symbol ON shareholding_pattern(symbol);
+CREATE INDEX IF NOT EXISTS idx_shareholding_disclosure_date ON shareholding_pattern(disclosure_date);
