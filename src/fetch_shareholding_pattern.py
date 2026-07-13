@@ -25,16 +25,11 @@ All originally-guessed field names matched. Notes from the real row:
   - recordId (NSE's own unique row id) and isin are both present and now
     captured -- see schema.sql for why recordId is the primary key.
 
-STILL NOT CONFIRMED: the actual XHR API endpoint URL. The real data row
-above came from DevTools but without a captured Request URL, so
-ENDPOINT_URL below remains the original guess
-(`/api/corporate-share-holdings-master`), which a live run already showed
-returns a non-JSON 200 response -- i.e. it's confirmed WRONG, just not
-yet replaced with the right one.
-  1. Open the shareholding pattern page in a browser, DevTools -> Network
-     -> Fetch/XHR, reload, and find the request whose response is the
-     real data (matches the shape above) -- copy its Request URL.
-  2. Send me that URL and I'll fix ENDPOINT_URL.
+ENDPOINT URL: confirmed 2026-07-13 via a real DevTools request capture:
+    GET https://www.nseindia.com/api/corporate-share-holdings-master?index=equities&symbol=HDFCBANK
+ENDPOINT_URL's path was actually right from the start -- the bug was a
+missing `index=equities` query param, which is why the earlier guess 200'd
+with a non-JSON body instead of the real data.
 
 POINT-IN-TIME NOTE: disclosure_date uses broadcastDate ("Exchange Received
 Time" per NSE's own hover-table label), not `date` (which is NSE's "AS ON
@@ -186,7 +181,8 @@ def main():
     for i, symbol in enumerate(symbols):
         print(f"[{i+1}/{len(symbols)}] fetching {symbol} ...")
         try:
-            resp = session.get(ENDPOINT_URL, params={"symbol": symbol}, timeout=15)
+            resp = session.get(ENDPOINT_URL, params={"index": "equities", "symbol": symbol},
+                                timeout=15)
             resp.raise_for_status()
             try:
                 payload = resp.json()

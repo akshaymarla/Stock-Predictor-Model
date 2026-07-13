@@ -13,7 +13,7 @@ progress — check the bottom of this file for the latest status.
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
-| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, **field names + values confirmed** against a real HDFCBANK row, but still not runnable — the endpoint URL is confirmed wrong (200s with a non-JSON body); needs the real XHR Request URL from DevTools |
+| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, field names/values/endpoint all confirmed against live NSE data — **needs one live run to confirm end-to-end** |
 
 ## Setup
 
@@ -95,11 +95,12 @@ actually a network issue:
   `disclosure_date` uses `broadcastDate`, matching the
   `corporate_announcements` convention. Parsing and idempotent upsert
   tested end-to-end against the real row (both plausible wrapper shapes).
-  **Still not runnable**: the actual XHR endpoint URL was never captured
-  alongside this real data row, and a separate live run already confirmed
-  the guessed `ENDPOINT_URL` returns a non-JSON 200 response. Need the
-  real Request URL from DevTools (Network tab → Fetch/XHR, find the
-  request whose response matches the shape above) to finish this.
+  Endpoint URL confirmed via a real curl capture:
+  `GET /api/corporate-share-holdings-master?index=equities&symbol=X` —
+  the path was right all along, the bug was a missing `index=equities`
+  query param (that's why the earlier guess 200'd with a non-JSON body).
+  Not yet run live end-to-end — next step is just confirming it actually
+  works against the real endpoint now that all the pieces are in place.
 
 ## Usage
 
@@ -160,6 +161,12 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Fixed `fetch_shareholding_pattern.py`'s `ENDPOINT_URL`
+  using a real curl capture — the path (`/api/corporate-share-holdings-master`)
+  was correct all along, the bug was a missing `index=equities` query
+  param, which is why it previously 200'd with a non-JSON body instead of
+  the real data. All pieces (field names, values, endpoint) are now
+  confirmed; next step is a live run to verify end-to-end.
 - **2026-07-13**: Confirmed `shareholding_pattern`'s field names AND
   values against a real HDFCBANK row (see "What's actually been tested"
   above). Schema changed: primary key is now `record_id` (NSE's own
