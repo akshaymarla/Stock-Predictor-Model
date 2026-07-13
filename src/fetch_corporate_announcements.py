@@ -22,11 +22,18 @@ dedupe key than symbol+date+time+subject) and sm_isin (stable identifier
 across symbol renames).
 
 Usage:
+    # nightly use -- no args needed, defaults to today only
+    python src/fetch_corporate_announcements.py
+
+    # explicit date range
     python src/fetch_corporate_announcements.py --from-date 01-07-2026 --to-date 13-07-2026
+
+    # one-time historical backfill shortcut
+    python src/fetch_corporate_announcements.py --years 5
 """
 import argparse
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
@@ -108,9 +115,20 @@ def upsert(conn, rows: list[tuple]):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--from-date", required=True, help="DD-MM-YYYY")
-    parser.add_argument("--to-date", required=True, help="DD-MM-YYYY")
+    parser.add_argument("--from-date", help="DD-MM-YYYY, defaults to today (nightly-run friendly)")
+    parser.add_argument("--to-date", help="DD-MM-YYYY, defaults to today")
+    parser.add_argument("--years", type=float,
+                         help="shortcut for a one-time historical backfill: fetch this "
+                              "many years back from today, overrides --from-date/--to-date")
     args = parser.parse_args()
+
+    today = datetime.now()
+    if args.years:
+        from_date = (today - timedelta(days=int(args.years * 365.25))).strftime("%d-%m-%Y")
+        to_date = today.strftime("%d-%m-%Y")
+    else:
+        from_date = args.from_date or today.strftime("%d-%m-%Y")
+        to_date = args.to_date or today.strftime("%d-%m-%Y")
 
     fetched_at = datetime.now().isoformat()
     conn = get_conn()
@@ -118,8 +136,8 @@ def main():
 
     params = {
         "index": "equities",
-        "from_date": args.from_date,
-        "to_date": args.to_date,
+        "from_date": from_date,
+        "to_date": to_date,
     }
     try:
         resp = session.get(ANNOUNCEMENTS_URL, params=params, timeout=15)

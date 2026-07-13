@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Nightly job: refresh surveillance flags, refresh today's index membership
-# snapshot, and pull the latest day's prices for the whole universe.
+# snapshot, pull the latest day's prices for the whole universe, and pull
+# today's corporate announcements.
 #
 # Intended to run once per night after market close (Akshay's stated plan
 # is a nightly run). Add to crontab with something like:
@@ -9,14 +10,14 @@
 #
 # (9pm IST, Mon-Fri only -- no point running on weekends, market's closed)
 #
-# NOTE: this pulls just the LATEST trading day of prices for the whole
-# universe (fast, meant for nightly use) -- NOT a backfill. Use
-# backfill_prices.py separately for historical data.
+# NOTE: this pulls just the LATEST trading day/announcements (fast, meant
+# for nightly use) -- NOT a backfill. For one-time historical backfills:
+#   python3 src/backfill_prices.py --years 5
+#   python3 src/fetch_corporate_announcements.py --years 5
 
 set -e
 cd "$(dirname "$0")"
 
-TODAY=$(date +%d-%m-%Y)
 mkdir -p logs
 
 echo "=== Nightly run: $(date) ==="
@@ -28,8 +29,13 @@ echo "--- Refreshing index membership snapshot ---"
 python3 src/fetch_index_membership.py
 
 echo "--- Pulling today's prices for full universe ---"
-# no --symbols -- fetch_daily_prices.py defaults to the full index_membership
-# universe when omitted (fails loudly if index_membership is empty)
-python3 src/fetch_daily_prices.py --from-date "$TODAY" --to-date "$TODAY"
+# no --symbols/--from-date/--to-date -- fetch_daily_prices.py defaults to
+# the full index_membership universe and today's date when omitted (fails
+# loudly if index_membership is empty)
+python3 src/fetch_daily_prices.py --from-date "$(date +%d-%m-%Y)" --to-date "$(date +%d-%m-%Y)"
+
+echo "--- Pulling today's corporate announcements ---"
+# no args -- defaults to today only
+python3 src/fetch_corporate_announcements.py
 
 echo "=== Nightly run complete: $(date) ==="

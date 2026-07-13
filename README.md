@@ -125,7 +125,9 @@ python src/backfill_prices.py --years 5
 # safe to re-run if interrupted -- it resumes via data/backfill_checkpoint.json
 
 # Corporate announcements -- confirmed against live NSE data
-python src/fetch_corporate_announcements.py --from-date 01-07-2026 --to-date 13-07-2026
+python src/fetch_corporate_announcements.py
+# no args -- defaults to today only (nightly-run friendly)
+# --years 5 for a one-time historical backfill, or --from-date/--to-date for a custom range
 
 # Financial results -- UNVERIFIED, see status note in the script itself
 python src/fetch_financial_results.py --from-date 01-04-2026 --to-date 13-07-2026
@@ -162,6 +164,12 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: `fetch_corporate_announcements.py`'s `--from-date`/
+  `--to-date` are now optional (default to today only, matching the
+  nightly use case), plus a `--years` shortcut for a one-time historical
+  backfill (e.g. `--years 5`) — no more being forced to type explicit
+  dates on every nightly run. Added it to `run_nightly.sh` now that it's
+  confirmed working live.
 - **2026-07-13**: Confirmed live from a terminal: `fetch_daily_prices.py`
   and `fetch_corporate_announcements.py` both work end-to-end against real
   NSE data (6109 announcement rows, 499 price rows for 2 symbols over a
