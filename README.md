@@ -1,8 +1,19 @@
-# Nifty Alpha Pipeline — Step 1: `daily_prices` + `surveillance_flags`
+# Nifty Alpha Pipeline
 
-The first two tables from the schema: the ones with clean, reliable free
-sources. Everything here uses SQLite (`data/nifty_pipeline.db`) so there's
-zero setup — swap for Postgres later without touching the logic.
+Data pipeline for the Nifty 500 stock-screening project. Every code change
+gets a changelog entry below so this stays an accurate running log of
+progress — check the bottom of this file for the latest status.
+
+## Tables implemented so far
+
+| Table | Script | Status |
+|---|---|---|
+| `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data) |
+| `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM + GSM both confirmed against live NSE data) |
+| `index_membership` | `src/fetch_index_membership.py` | Built, untested live (current-snapshot only, see caveat below) |
+| `corporate_announcements` | `src/fetch_corporate_announcements.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
+| `financial_results` | — | Not started |
+| `shareholding_pattern` | — | Not started |
 
 ## Setup
 
@@ -43,6 +54,19 @@ python src/fetch_daily_prices.py \
 
 # Surveillance flags (ASM/GSM) — no symbol list needed, pulls the whole flagged list
 python src/fetch_surveillance.py
+
+# Index membership -- today's Nifty 500 constituent snapshot
+python src/fetch_index_membership.py
+
+# Backfill full universe's price history (run fetch_index_membership.py first)
+python src/backfill_prices.py --years 5
+# safe to re-run if interrupted -- it resumes via data/backfill_checkpoint.json
+
+# Corporate announcements -- UNVERIFIED, see status note in the script itself
+python src/fetch_corporate_announcements.py --from-date 01-07-2026 --to-date 13-07-2026
+
+# Nightly job (surveillance + membership snapshot + latest day's prices for whole universe)
+./run_nightly.sh
 ```
 
 ## Inspecting the data
@@ -66,3 +90,20 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   browser-like TLS fingerprinting), the fallback is `jugaad-data`'s
   `NSELive` class, which already handles this for equity quotes — worth
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
+
+## Changelog
+
+- **2026-07-13**: Added `CLAUDE.md` so Claude Code (VSCode extension) has
+  persistent project context — it doesn't share memory with claude.ai
+  conversations, so this file is now the bridge between the two.
+- **2026-07-13**: Added `corporate_announcements` table + fetch script.
+  Field names are a best-effort guess (unverified against a live NSE
+  response) — needs a DevTools check the same way ASM/GSM did.
+- **2026-07-13**: Added `index_membership` table + fetch script (current
+  Nifty 500 snapshot from NSE Indices CSV, untested live). Added
+  `backfill_prices.py` (checkpointed historical backfill across the full
+  universe) and `run_nightly.sh` (chains surveillance + membership +
+  latest-day prices for cron use).
+- **2026-07-10**: Initial commit — `daily_prices` and `surveillance_flags`
+  tables + fetch scripts. Both confirmed working against live NSE data
+  (ASM and GSM field names fixed after checking real DevTools responses).

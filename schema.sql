@@ -47,3 +47,19 @@ CREATE TABLE IF NOT EXISTS index_membership (
 );
 
 CREATE INDEX IF NOT EXISTS idx_index_membership_snapshot ON index_membership(snapshot_date);
+
+CREATE TABLE IF NOT EXISTS corporate_announcements (
+    symbol            TEXT NOT NULL,
+    announcement_date TEXT NOT NULL,   -- the knowledge-timestamp: when the market learned this
+    announcement_time TEXT,            -- HH:MM:SS if available, separate from date for clarity
+    subject           TEXT,            -- short headline/subject of the filing
+    details           TEXT,            -- longer description text, if provided
+    attachment_url    TEXT,            -- link to the underlying PDF filing, if any
+    category          TEXT,            -- controlled vocabulary, filled in later (NLP/manual pass)
+    source            TEXT NOT NULL,   -- 'NSE' or 'BSE'
+    fetched_at        TEXT NOT NULL,
+    PRIMARY KEY (symbol, announcement_date, announcement_time, subject)
+);
+
+CREATE INDEX IF NOT EXISTS idx_corp_announcements_symbol ON corporate_announcements(symbol);
+CREATE INDEX IF NOT EXISTS idx_corp_announcements_date ON corporate_announcements(announcement_date);
