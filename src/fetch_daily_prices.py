@@ -18,13 +18,22 @@ machine, where nseindia.com is reachable, and let me know what happens --
 NSE occasionally changes response formats/headers and we may need to adjust.
 
 Usage:
+    # nightly use -- no args needed: full index_membership universe, today only
+    python src/fetch_daily_prices.py
+
+    # explicit symbols + range
     python src/fetch_daily_prices.py --symbols RELIANCE TCS INFY \
         --from-date 01-01-2024 --to-date 31-12-2024
+
+    # one-time historical backfill shortcut for a symbol subset (for the
+    # full universe, prefer backfill_prices.py -- it checkpoints progress
+    # across ~500 symbols so an interrupted run can resume)
+    python src/fetch_daily_prices.py --symbols RELIANCE TCS --years 5
 """
 import argparse
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -96,14 +105,24 @@ def main():
     parser.add_argument("--symbols", nargs="+",
                          help="NSE symbols, e.g. RELIANCE TCS INFY. "
                               "Omit to use the full Nifty 500 universe from index_membership.")
-    parser.add_argument("--from-date", required=True, help="DD-MM-YYYY")
-    parser.add_argument("--to-date", required=True, help="DD-MM-YYYY")
+    parser.add_argument("--from-date", help="DD-MM-YYYY, defaults to today (nightly-run friendly)")
+    parser.add_argument("--to-date", help="DD-MM-YYYY, defaults to today")
+    parser.add_argument("--years", type=float,
+                         help="shortcut for a one-time historical backfill: fetch this "
+                              "many years back from today, overrides --from-date/--to-date")
     parser.add_argument("--sleep", type=float, default=1.0,
                          help="seconds to sleep between symbols, be polite to NSE")
     args = parser.parse_args()
 
-    from_date = datetime.strptime(args.from_date, "%d-%m-%Y")
-    to_date = datetime.strptime(args.to_date, "%d-%m-%Y")
+    today = datetime.now()
+    if args.years:
+        from_date = today - timedelta(days=int(args.years * 365.25))
+        to_date = today
+    else:
+        from_date = (datetime.strptime(args.from_date, "%d-%m-%Y") if args.from_date
+                     else today)
+        to_date = (datetime.strptime(args.to_date, "%d-%m-%Y") if args.to_date
+                   else today)
 
     conn = get_conn()
 

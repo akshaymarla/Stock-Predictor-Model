@@ -29,10 +29,9 @@ echo "--- Refreshing index membership snapshot ---"
 python3 src/fetch_index_membership.py
 
 echo "--- Pulling today's prices for full universe ---"
-# no --symbols/--from-date/--to-date -- fetch_daily_prices.py defaults to
-# the full index_membership universe and today's date when omitted (fails
-# loudly if index_membership is empty)
-python3 src/fetch_daily_prices.py --from-date "$(date +%d-%m-%Y)" --to-date "$(date +%d-%m-%Y)"
+# no args -- defaults to the full index_membership universe and today's
+# date (fails loudly if index_membership is empty)
+python3 src/fetch_daily_prices.py
 
 echo "--- Pulling today's corporate announcements ---"
 # no args -- defaults to today only

@@ -13,7 +13,7 @@ progress — check the bottom of this file for the latest status.
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
-| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, field names/values/endpoint all confirmed against live NSE data — **needs one live run to confirm end-to-end** |
+| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Working (confirmed end-to-end against live NSE data; dynamic universe, quarterly cadence so not in nightly by default) |
 
 ## Setup
 
@@ -109,7 +109,10 @@ actually a network issue:
 python src/fetch_daily_prices.py \
     --symbols RELIANCE TCS INFY HDFCBANK \
     --from-date 01-01-2024 --to-date 31-12-2024
-# omit --symbols to fetch the full Nifty 500 universe from index_membership instead
+# omit --symbols for the full Nifty 500 universe from index_membership,
+# omit --from-date/--to-date for today only (nightly-run friendly),
+# or use --years 5 for a one-time historical backfill of a symbol subset
+# (for the full universe, prefer backfill_prices.py -- it checkpoints)
 
 # Surveillance flags (ASM/GSM) — no symbol list needed, pulls the whole flagged list
 python src/fetch_surveillance.py
@@ -129,9 +132,12 @@ python src/fetch_corporate_announcements.py
 # Financial results -- UNVERIFIED, see status note in the script itself
 python src/fetch_financial_results.py --from-date 01-04-2026 --to-date 13-07-2026
 
-# Shareholding pattern -- field names confirmed, endpoint URL still UNVERIFIED, see status note
+# Shareholding pattern -- confirmed against live NSE data
 python src/fetch_shareholding_pattern.py --symbols RELIANCE TCS INFY
 # omit --symbols to fetch the full Nifty 500 universe from index_membership instead
+# (this is a quarterly filing -- not included in run_nightly.sh by default,
+# since hitting 500 symbols every night for data that changes ~4x/year is
+# wasted load; run it periodically e.g. weekly instead)
 
 # Nightly job (surveillance + membership snapshot + latest day's prices for whole universe)
 ./run_nightly.sh
@@ -161,6 +167,25 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Confirmed `fetch_shareholding_pattern.py` working
+  end-to-end on a live run (after the `data/nifty_pipeline.db` local
+  schema fix — see below). Also made `fetch_daily_prices.py`'s
+  `--from-date`/`--to-date` optional (default to today, matching
+  `corporate_announcements`), added a `--years` shortcut for one-time
+  backfills of a symbol subset, and simplified `run_nightly.sh`
+  accordingly (no more explicitly passing today's date). Deliberately did
+  *not* add `fetch_shareholding_pattern.py` to `run_nightly.sh` — it's a
+  quarterly filing, so hitting 500 symbols nightly for data that rarely
+  changes is wasted NSE load; run it periodically (e.g. weekly) instead.
+- **2026-07-13**: Migrated the local `data/nifty_pipeline.db`'s
+  `shareholding_pattern` table to the current schema (`record_id` primary
+  key) by dropping and recreating just that table — it had 0 committed
+  rows at the time (a run had crashed mid-upsert against the old schema),
+  so nothing was lost. `corporate_announcements` (810k+ rows from a
+  `--years 5` backfill) and the other tables were already on the current
+  schema and untouched. Note for future schema changes: `CREATE TABLE IF
+  NOT EXISTS` never retrofits an existing table — a table with real data
+  and a changed schema needs a manual migration, not just a redeploy.
 - **2026-07-13**: Fixed `fetch_shareholding_pattern.py`'s `ENDPOINT_URL`
   using a real curl capture — the path (`/api/corporate-share-holdings-master`)
   was correct all along, the bug was a missing `index=equities` query
