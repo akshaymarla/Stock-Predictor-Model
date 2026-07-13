@@ -74,7 +74,7 @@ def parse_asm(payload, fetched_at: str) -> list[tuple]:
     }, ...]}
     """
     rows = []
-    for item in _extract_items(payload):
+    for item in payload.get("longterm",{}).get("data",{}):
         symbol = item.get("symbol")
         stage_raw = item.get("asmSurvIndicator", "")
         stage = stage_raw.replace(" ", "_").upper() or "UNKNOWN"
@@ -83,6 +83,17 @@ def parse_asm(payload, fetched_at: str) -> list[tuple]:
             continue
         start_date = _normalize_date(start_date_raw)
         rows.append((symbol, f"ASM_{stage}", start_date, None, "NSE", fetched_at))
+    
+    for item in payload.get("shortterm",{}).get("data",{}):
+        symbol = item.get("symbol")
+        stage_raw = item.get("asmSurvIndicator", "")
+        stage = stage_raw.replace(" ", "_").upper() or "UNKNOWN"
+        start_date_raw = item.get("asmTime")
+        if not symbol or not start_date_raw:
+            continue
+        start_date = _normalize_date(start_date_raw)
+        rows.append((symbol, f"ASM_{stage}", start_date, None, "NSE", fetched_at))
+
     return rows
 
 
@@ -153,6 +164,7 @@ def main():
     for name, url, parser in [("ASM", ASM_URL, parse_asm), ("GSM", GSM_URL, parse_gsm)]:
         try:
             resp = session.get(url, timeout=15)
+            #print(resp.json())
             resp.raise_for_status()
             payload = resp.json()
             rows = parser(payload, fetched_at)
