@@ -157,6 +157,10 @@ def main():
             payload = resp.json()
             rows = parser(payload, fetched_at)
             print(f"{name}: parsed {len(rows)} flagged symbols")
+            if not rows:
+                print(f"  -> 0 rows but the request succeeded (HTTP {resp.status_code}) -- "
+                      f"the response shape didn't match what parse_{name.lower()}() expects. "
+                      f"Raw payload (first 500 chars): {resp.text[:500]!r}", file=sys.stderr)
             all_rows.extend(rows)
         except Exception as e:
             print(f"{name} fetch FAILED: {e}", file=sys.stderr)

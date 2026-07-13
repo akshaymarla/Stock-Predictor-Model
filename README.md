@@ -150,6 +150,14 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: `fetch_surveillance.py` was returning "parsed 0 flagged
+  symbols" for both ASM and GSM on a live run. Added a diagnostic: when a
+  request succeeds (200 OK, valid JSON) but parses to 0 rows, it now
+  prints the raw response body (first 500 chars) to stderr, so the next
+  run reveals whether NSE changed the response shape, blocked the session
+  silently, or genuinely has 0 flagged symbols right now — instead of
+  guessing blind. Root cause not yet identified; need that diagnostic
+  output from a real run to fix `parse_asm()`/`parse_gsm()`.
 - **2026-07-13**: Added `shareholding_pattern` table + fetch script
   (`src/fetch_shareholding_pattern.py`). Field names confirmed from a real
   NSE column-config response (`pr_and_prgrp`, `public_val`,
