@@ -11,11 +11,21 @@ installed jugaad-data==0.33.1 source directly, not assumed):
 
 NOTE ON NETWORK ACCESS:
 This script talks to nseindia.com, which is NOT reachable from the sandbox
-this was built in (only PyPI/GitHub/npm etc. are whitelisted there). It has
-been checked for import errors and logic bugs using synthetic data, but the
-live NSE call itself has not been executed end-to-end. Run it from your own
-machine, where nseindia.com is reachable, and let me know what happens --
-NSE occasionally changes response formats/headers and we may need to adjust.
+this was built in (only PyPI/GitHub/npm etc. are whitelisted there). Confirmed
+working live 2026-07-13 for a full-year range (RELIANCE, TCS, 249-250 rows).
+
+KNOWN GOTCHA (confirmed live 2026-07-13): requesting a same-day-only range
+("today" for both --from-date and --to-date, e.g. the nightly default) fails
+for ~all symbols with a cryptic pandas KeyError if run before NSE has
+published that day's data (usually available a few hours after market
+close, not immediately). Root cause: jugaad_data's stock_df() does
+pd.DataFrame(raw)[stock_select_headers] internally, which throws that
+KeyError when NSE's API returns an empty list. fetch_symbol() below
+pre-checks with stock_raw() (cached, so no extra network cost) and raises a
+clear ValueError instead. This isn't fixable on our end -- it's just NSE not
+having same-day data yet -- but the error is at least readable now. If
+run_nightly.sh's 9pm IST schedule still hits this, NSE's historical API may
+be slower to update than assumed; try a later cron time.
 
 Usage:
     # nightly use -- no args needed: full index_membership universe, today only
@@ -40,7 +50,7 @@ import pandas as pd
 from db import get_conn, get_universe
 
 try:
-    from jugaad_data.nse import stock_df
+    from jugaad_data.nse import stock_df, stock_raw
 except ImportError:
     print("Run: pip install -r requirements.txt", file=sys.stderr)
     raise
@@ -48,6 +58,21 @@ except ImportError:
 
 def fetch_symbol(symbol: str, from_date: datetime, to_date: datetime) -> pd.DataFrame:
     """Pull one symbol's EOD history and normalize to our schema's column names."""
+    # jugaad_data's stock_df() does pd.DataFrame(raw)[stock_select_headers] internally,
+    # which crashes with a cryptic pandas KeyError if NSE returns an empty list for this
+    # range (e.g. today's data isn't published yet, or the range is a holiday/weekend).
+    # Pre-checking with stock_raw() (which stock_df() calls internally and caches, so
+    # this doesn't cost an extra network round-trip) lets us fail with a clear message
+    # instead. Confirmed live 2026-07-13: a same-day "today only" run failed for ~all
+    # symbols with this exact empty-data case, not a real bug in our column mapping.
+    raw_check = stock_raw(symbol=symbol, from_date=from_date, to_date=to_date, series="EQ")
+    if not raw_check:
+        raise ValueError(
+            f"NSE returned no trading data for {from_date:%d-%m-%Y} to {to_date:%d-%m-%Y}. "
+            f"Common causes: today's data isn't published yet (usually available a few "
+            f"hours after market close, not immediately), the range is a holiday/weekend, "
+            f"or the symbol didn't trade in this window."
+        )
     raw = stock_df(symbol=symbol, from_date=from_date, to_date=to_date, series="EQ")
 
     df = pd.DataFrame({

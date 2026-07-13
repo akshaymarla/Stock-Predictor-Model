@@ -31,8 +31,15 @@ actually a network issue:
   assumed. The normalization, rolling 20-day average calc, and the
   idempotent upsert (safe to re-run nightly without duplicating rows) were
   all tested end-to-end with synthetic data shaped exactly like NSE's real
-  response. The one thing NOT tested: the live call to NSE itself, since
-  `nseindia.com` isn't reachable from the sandbox this was built in.
+  response. Confirmed working live 2026-07-13 (RELIANCE/TCS, full-year
+  range). **Known gotcha, also confirmed live**: a same-day-only request
+  (the nightly default) fails for ~all symbols with a cryptic pandas error
+  if run before NSE has published that day's data. Root cause is inside
+  `jugaad_data` itself (crashes on an empty API response instead of
+  handling it) — not fixable from our side, but `fetch_symbol()` now
+  pre-checks and raises a clear, readable error instead of the confusing
+  internal one. If `run_nightly.sh`'s 9pm IST slot still hits this
+  regularly, NSE's data may not be live by then — try a later cron time.
 
 - **`fetch_corporate_announcements.py`**: confirmed 2026-07-13 against a
   live DevTools response — the original guessed field names (`symbol`,
@@ -167,6 +174,18 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Fixed a cryptic crash in `fetch_daily_prices.py` —
+  `FAILED for RHIM: "None of [Index(['CH_TIMESTAMP', ...])] are in the
+  [columns]"` — hit on a live same-day-only run across ~all symbols. Root
+  cause (confirmed by reading `jugaad_data`'s source): its `stock_df()`
+  crashes with that pandas error when NSE's API returns an empty list for
+  a date, which happens when today's data isn't published yet (usually
+  a few hours after market close, not immediately). `fetch_symbol()` now
+  pre-checks with `stock_raw()` (no extra network cost — it's what
+  `stock_df()` calls internally, and results are cached) and raises a
+  clear message instead. This doesn't make the data appear sooner — if
+  `run_nightly.sh` hits this regularly at 9pm IST, NSE's historical API
+  may need more time after close than assumed.
 - **2026-07-13**: Confirmed `fetch_shareholding_pattern.py` working
   end-to-end on a live run (after the `data/nifty_pipeline.db` local
   schema fix — see below). Also made `fetch_daily_prices.py`'s
