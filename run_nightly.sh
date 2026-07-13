@@ -28,18 +28,8 @@ echo "--- Refreshing index membership snapshot ---"
 python3 src/fetch_index_membership.py
 
 echo "--- Pulling today's prices for full universe ---"
-SYMBOLS=$(cd src && python3 -c "
-from db import get_conn
-from backfill_prices import get_universe
-conn = get_conn()
-print(' '.join(get_universe(conn)))
-")
-
-if [ -z "$SYMBOLS" ]; then
-    echo "No universe found -- run fetch_index_membership.py successfully first."
-    exit 1
-fi
-
-python3 src/fetch_daily_prices.py --symbols $SYMBOLS --from-date "$TODAY" --to-date "$TODAY"
+# no --symbols -- fetch_daily_prices.py defaults to the full index_membership
+# universe when omitted (fails loudly if index_membership is empty)
+python3 src/fetch_daily_prices.py --from-date "$TODAY" --to-date "$TODAY"
 
 echo "=== Nightly run complete: $(date) ==="

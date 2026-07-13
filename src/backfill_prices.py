@@ -29,27 +29,10 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from db import get_conn
+from db import get_conn, get_universe
 from fetch_daily_prices import fetch_symbol, add_rolling_avg_traded_value, upsert
 
 CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "backfill_checkpoint.json"
-
-
-def get_universe(conn, index_name="NIFTY500") -> list[str]:
-    """Latest snapshot's symbol list from index_membership."""
-    row = conn.execute(
-        "SELECT MAX(snapshot_date) FROM index_membership WHERE index_name = ?",
-        (index_name,),
-    ).fetchone()
-    latest_snapshot = row[0]
-    if not latest_snapshot:
-        return []
-    symbols = conn.execute(
-        "SELECT symbol FROM index_membership WHERE index_name = ? AND snapshot_date = ? "
-        "ORDER BY symbol",
-        (index_name, latest_snapshot),
-    ).fetchall()
-    return [s[0] for s in symbols]
 
 
 def load_checkpoint() -> set:

@@ -13,7 +13,7 @@ progress — check the bottom of this file for the latest status.
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
-| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, **partially confirmed** — field names are real (from a live DevTools column-config response), endpoint URL and exact value formats still a best guess |
+| `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Built, **not working yet** — field names are real (from a live DevTools column-config response), but a live run confirms the guessed endpoint URL is wrong (200s with a non-JSON body); needs the real XHR URL from DevTools |
 
 ## Setup
 
@@ -97,7 +97,13 @@ actually a network issue:
   `corporate_announcements`, not `date` (NSE's "AS ON DATE" snapshot
   period) or `submissionDate` (can precede public dissemination). Parsing
   and idempotent upsert tested end-to-end with synthetic data shaped like
-  the confirmed field names.
+  the confirmed field names. **Live run confirms `ENDPOINT_URL` is wrong**
+  — it 200s but returns a non-JSON body (likely an HTML page), so the
+  guessed `/api/corporate-share-holdings-master` path doesn't exist as-is.
+  Added a diagnostic that prints the raw response body on a JSON-decode
+  failure instead of a cryptic error, so the next run's stderr output will
+  show what NSE actually returned — need that plus the real DevTools XHR
+  URL for the shareholding pattern page to fix this.
 
 ## Usage
 
@@ -106,6 +112,7 @@ actually a network issue:
 python src/fetch_daily_prices.py \
     --symbols RELIANCE TCS INFY HDFCBANK \
     --from-date 01-01-2024 --to-date 31-12-2024
+# omit --symbols to fetch the full Nifty 500 universe from index_membership instead
 
 # Surveillance flags (ASM/GSM) — no symbol list needed, pulls the whole flagged list
 python src/fetch_surveillance.py
@@ -125,6 +132,7 @@ python src/fetch_financial_results.py --from-date 01-04-2026 --to-date 13-07-202
 
 # Shareholding pattern -- field names confirmed, endpoint URL still UNVERIFIED, see status note
 python src/fetch_shareholding_pattern.py --symbols RELIANCE TCS INFY
+# omit --symbols to fetch the full Nifty 500 universe from index_membership instead
 
 # Nightly job (surveillance + membership snapshot + latest day's prices for whole universe)
 ./run_nightly.sh
@@ -154,6 +162,21 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-13**: Confirmed live from a terminal: `fetch_daily_prices.py`
+  and `fetch_corporate_announcements.py` both work end-to-end against real
+  NSE data (6109 announcement rows, 499 price rows for 2 symbols over a
+  year). `fetch_shareholding_pattern.py` does not — it 200s but returns a
+  non-JSON body, confirming `ENDPOINT_URL` is a wrong guess; added a
+  raw-body diagnostic on JSON-decode failure to help pin down the real
+  endpoint once we get a DevTools capture.
+- **2026-07-13**: Made the symbol list dynamic wherever it was hardcoded.
+  Moved `get_universe()` from `backfill_prices.py` into `db.py` (avoids a
+  circular import between `backfill_prices.py` and `fetch_daily_prices.py`).
+  `fetch_daily_prices.py` and `fetch_shareholding_pattern.py` now treat
+  `--symbols` as optional — omit it and they pull the full Nifty 500
+  universe from `index_membership` instead. Simplified `run_nightly.sh`
+  accordingly (dropped the inline Python snippet that built `--symbols`
+  manually — `fetch_daily_prices.py` does that itself now).
 - **2026-07-13**: Fixed `fetch_surveillance.py`'s ASM parsing using the
   raw-response diagnostic added earlier today. Real shape is nested by
   category (`{"longterm": {"data": [...]}}`), not flat — `parse_asm()`

@@ -42,7 +42,7 @@ from typing import Optional
 
 import requests
 
-from db import get_conn
+from db import get_conn, get_universe
 
 BASE_HEADERS = {
     "User-Agent": (
@@ -149,8 +149,9 @@ def upsert(conn, rows: list[tuple]):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbols", nargs="+", required=True,
-                         help="NSE symbols, e.g. RELIANCE TCS INFY")
+    parser.add_argument("--symbols", nargs="+",
+                         help="NSE symbols, e.g. RELIANCE TCS INFY. "
+                              "Omit to use the full Nifty 500 universe from index_membership.")
     parser.add_argument("--sleep", type=float, default=1.0,
                          help="seconds to sleep between symbols, be polite to NSE")
     args = parser.parse_args()
@@ -159,13 +160,31 @@ def main():
     conn = get_conn()
     session = make_session()
 
+    symbols = args.symbols
+    if not symbols:
+        symbols = get_universe(conn)
+        if not symbols:
+            print("No --symbols given and index_membership is empty -- run "
+                  "fetch_index_membership.py first, or pass --symbols explicitly.",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"No --symbols given -- using the full Nifty 500 universe "
+              f"from index_membership ({len(symbols)} symbols).")
+
     all_rows = []
-    for i, symbol in enumerate(args.symbols):
-        print(f"[{i+1}/{len(args.symbols)}] fetching {symbol} ...")
+    for i, symbol in enumerate(symbols):
+        print(f"[{i+1}/{len(symbols)}] fetching {symbol} ...")
         try:
             resp = session.get(ENDPOINT_URL, params={"symbol": symbol}, timeout=15)
             resp.raise_for_status()
-            rows = parse_shareholding(resp.json(), symbol, fetched_at)
+            try:
+                payload = resp.json()
+            except ValueError:
+                print(f"    FAILED for {symbol}: response wasn't valid JSON "
+                      f"(HTTP {resp.status_code}) -- ENDPOINT_URL is probably wrong. "
+                      f"Raw response (first 500 chars): {resp.text[:500]!r}", file=sys.stderr)
+                continue
+            rows = parse_shareholding(payload, symbol, fetched_at)
             print(f"    got {len(rows)} rows")
             all_rows.extend(rows)
         except Exception as e:

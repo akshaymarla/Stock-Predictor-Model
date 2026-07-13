@@ -28,7 +28,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from db import get_conn
+from db import get_conn, get_universe
 
 try:
     from jugaad_data.nse import stock_df
@@ -93,8 +93,9 @@ def upsert(conn, df: pd.DataFrame):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbols", nargs="+", required=True,
-                         help="NSE symbols, e.g. RELIANCE TCS INFY")
+    parser.add_argument("--symbols", nargs="+",
+                         help="NSE symbols, e.g. RELIANCE TCS INFY. "
+                              "Omit to use the full Nifty 500 universe from index_membership.")
     parser.add_argument("--from-date", required=True, help="DD-MM-YYYY")
     parser.add_argument("--to-date", required=True, help="DD-MM-YYYY")
     parser.add_argument("--sleep", type=float, default=1.0,
@@ -105,10 +106,22 @@ def main():
     to_date = datetime.strptime(args.to_date, "%d-%m-%Y")
 
     conn = get_conn()
+
+    symbols = args.symbols
+    if not symbols:
+        symbols = get_universe(conn)
+        if not symbols:
+            print("No --symbols given and index_membership is empty -- run "
+                  "fetch_index_membership.py first, or pass --symbols explicitly.",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"No --symbols given -- using the full Nifty 500 universe "
+              f"from index_membership ({len(symbols)} symbols).")
+
     all_frames = []
 
-    for i, symbol in enumerate(args.symbols):
-        print(f"[{i+1}/{len(args.symbols)}] fetching {symbol} ...")
+    for i, symbol in enumerate(symbols):
+        print(f"[{i+1}/{len(symbols)}] fetching {symbol} ...")
         try:
             df = fetch_symbol(symbol, from_date, to_date)
             all_frames.append(df)
