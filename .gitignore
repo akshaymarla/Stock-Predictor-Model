@@ -1,0 +1,6 @@
+# Local database and runtime state -- not meant to be committed
+data/*.db
+data/backfill_checkpoint.json
+logs/
+__pycache__/
+*.pyc
