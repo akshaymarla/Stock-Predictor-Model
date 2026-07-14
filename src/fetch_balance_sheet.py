@@ -47,7 +47,7 @@ from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
-from screener_common import flatten_periods, find_disclosure, period_type
+from screener_common import flatten_periods, find_disclosure, period_type, add_common_args, resolve_views
 
 # UNVERIFIED -- see STATUS note above. Base summary table only.
 COLUMN_MAP = {
@@ -107,14 +107,14 @@ def upsert(conn, rows: list):
     conn.commit()
 
 
-def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, fetched_at: str) -> list:
+def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, views: list, sleep: float, fetched_at: str) -> list:
     token = scraper.getBSEToken(symbol)
     if not token:
         print(f"    FAILED for {symbol}: no BSE token found -- skipping.", file=sys.stderr)
         return []
 
     all_rows = []
-    for consolidated, result_type in ((True, "CONSOLIDATED"), (False, "STANDALONE")):
+    for i, (consolidated, result_type) in enumerate(views):
         try:
             scraper.loadScraper(token, consolidated=consolidated)
             periods = flatten_periods(scraper.balanceSheet(withAddon=False))
@@ -122,15 +122,16 @@ def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, fetched_at: str) ->
                 all_rows.extend(build_rows(conn, symbol, periods, result_type, fetched_at))
         except Exception as e:
             print(f"    FAILED for {symbol} ({result_type}): {e}", file=sys.stderr)
+        if i < len(views) - 1:
+            time.sleep(sleep)  # pace between consolidated/standalone views, not just between symbols
     return all_rows
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbols", nargs="+",
-                         help="NSE symbols. Omit for the full Nifty 500 universe from index_membership.")
-    parser.add_argument("--sleep", type=float, default=1.0)
+    add_common_args(parser)
     args = parser.parse_args()
+    views = resolve_views(args)
 
     fetched_at = datetime.now().isoformat()
     conn = get_conn()
@@ -148,7 +149,7 @@ def main():
     total_upserted = 0
     for i, symbol in enumerate(symbols):
         print(f"[{i+1}/{len(symbols)}] fetching {symbol} ...")
-        rows = fetch_symbol(scraper, conn, symbol, fetched_at)
+        rows = fetch_symbol(scraper, conn, symbol, views, args.sleep, fetched_at)
         if rows:
             upsert(conn, rows)
             total_upserted += len(rows)

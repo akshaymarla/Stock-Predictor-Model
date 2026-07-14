@@ -67,7 +67,7 @@ from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
-from screener_common import flatten_periods, find_disclosure, period_type
+from screener_common import flatten_periods, find_disclosure, period_type, add_common_args, resolve_views
 
 # screener.in row-label (after screener_common's whitespace normalization) ->
 # our column name, as a list of aliases tried in order. Core fields confirmed
@@ -189,25 +189,9 @@ def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, views: list, sleep:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbols", nargs="+",
-                         help="NSE symbols, e.g. RELIANCE TCS INFY. "
-                              "Omit to use the full Nifty 500 universe from index_membership.")
-    view_group = parser.add_mutually_exclusive_group()
-    view_group.add_argument("--consolidated-only", action="store_true",
-                             help="skip the standalone view, halves request volume")
-    view_group.add_argument("--standalone-only", action="store_true",
-                             help="skip the consolidated view, halves request volume")
-    parser.add_argument("--sleep", type=float, default=2.0,
-                         help="seconds to sleep between requests -- screener.in throttles "
-                              "aggressive scraping, raise this if you see rate-limit errors")
+    add_common_args(parser)
     args = parser.parse_args()
-
-    if args.consolidated_only:
-        views = [(True, "CONSOLIDATED")]
-    elif args.standalone_only:
-        views = [(False, "STANDALONE")]
-    else:
-        views = [(True, "CONSOLIDATED"), (False, "STANDALONE")]
+    views = resolve_views(args)
 
     fetched_at = datetime.now().isoformat()
     conn = get_conn()

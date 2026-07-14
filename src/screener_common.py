@@ -73,3 +73,33 @@ def period_type(period_end_date: str, annual: bool = False) -> str:
         return "ANNUAL"
     month = int(period_end_date[5:7])
     return {6: "Q1", 9: "Q2", 12: "Q3", 3: "Q4"}.get(month, "ANNUAL")
+
+
+def add_common_args(parser):
+    """--symbols, --consolidated-only/--standalone-only, --sleep -- shared by
+    every screener.in-sourced fetch script's CLI. Centralized here after these
+    flags drifted out of sync once already (added to fetch_financial_results.py
+    but forgotten in fetch_balance_sheet.py/fetch_cash_flow.py/fetch_ratios.py,
+    2026-07-15) -- importing this instead of copy-pasting argparse calls means
+    that can't happen again."""
+    parser.add_argument("--symbols", nargs="+",
+                         help="NSE symbols, e.g. RELIANCE TCS INFY. "
+                              "Omit to use the full Nifty 500 universe from index_membership.")
+    view_group = parser.add_mutually_exclusive_group()
+    view_group.add_argument("--consolidated-only", action="store_true",
+                             help="skip the standalone view, halves request volume")
+    view_group.add_argument("--standalone-only", action="store_true",
+                             help="skip the consolidated view, halves request volume")
+    parser.add_argument("--sleep", type=float, default=2.0,
+                         help="seconds to sleep between requests -- screener.in throttles "
+                              "aggressive scraping, raise this if you see rate-limit errors")
+
+
+def resolve_views(args) -> list:
+    """Turn --consolidated-only/--standalone-only into the (is_consolidated,
+    result_type) pairs callers loop over. Default (neither flag): both views."""
+    if args.consolidated_only:
+        return [(True, "CONSOLIDATED")]
+    if args.standalone_only:
+        return [(False, "STANDALONE")]
+    return [(True, "CONSOLIDATED"), (False, "STANDALONE")]
