@@ -1,38 +1,32 @@
 """
-Fetches granular quarterly financial results (sales, expenses, operating
-profit, OPM%, etc.) from screener.in via the vendored src/screenerScraper.py
-(github.com/BuildAlgos/screener-scraper) and loads them into
-`financial_results`.
+Fetches granular quarterly + annual financial results (sales, expenses,
+operating profit, OPM%, etc.) from screener.in via the vendored
+src/screenerScraper.py (github.com/BuildAlgos/screener-scraper) and loads
+them into `financial_results`.
 
 POINT-IN-TIME NOTE -- read before touching this file:
 screener.in's data has NO disclosure/announcement timestamp anywhere --
-quarterlyReport() only returns the quarter-END date (parsed from the UI's
-column headers). Confirmed by reading screenerScraper.py directly: none of
-its methods except the separate corporateAnnouncements() (a different BSE
-API, not wired into the financial data) carry a broadcast/filing time.
+quarterlyReport()/pnlReport() only return the period-END date (parsed from
+the UI's column headers). So disclosure_date is NOT read from screener.in.
+It's derived in screener_common.find_disclosure() by joining against our own
+`corporate_announcements` table (confirmed live NSE data) for the earliest
+"financial result"-type announcement within 65 days of period-end -- a real
+SEBI-mandated disclosure window, not a guess. If nothing matches, the period
+is SKIPPED and logged -- never defaulted to today's date. See
+src/screener_common.py for why this logic is centralized rather than
+duplicated per script.
 
-So disclosure_date is NOT read from screener.in. It's derived by joining
-against our own `corporate_announcements` table (confirmed live NSE data)
-for the earliest "financial result"-type announcement dated between
-period_end_date and period_end_date+65 days -- SEBI mandates disclosure
-within 45 days (Q1-Q3) or 60 days (Q4/annual) of quarter-end, so this window
-is a real regulatory bound, not a guess. If nothing matches in that window,
-the quarter is SKIPPED and logged -- never defaulted to today's date. That
-was a real bug in an earlier draft of this integration: silently stamping
-unmatched historical quarters with today() would have corrupted years of
-data with a fabricated "disclosed today" timestamp. A gap in the data is
-honest; a wrong date is a silent landmine.
-
-DATA SHAPE NOTE: screener.in's scraper methods (quarterlyReport(), etc.)
-return a dict, NOT a pandas DataFrame -- {"2025-06-30": [{"Sales": 100.0},
-{"Expenses": 80.0}, ...], "TTM": [...]}, one single-key dict per metric row
-per quarter. _flatten_quarters() below merges each quarter's list into a
-single flat dict. "TTM" (trailing twelve months) is not a specific quarter
-and is skipped. Metric key names (e.g. "OperatingProfit", "OPM%") come from
-screener.in's literal UI row labels with spaces stripped -- these are NOT
-independently confirmed against a live scrape (no network access to
-screener.in from the sandbox this was built in); if a live run parses 0
-metrics for a matched quarter, that's the first thing to check.
+DATA SHAPE + FIELD NAME NOTES:
+screener.in's scraper methods return a dict, NOT a pandas DataFrame --
+{"2025-06-30": [{"Sales": 100.0}, {"Expenses": 80.0}, ...], "TTM": [...]}.
+screener_common.flatten_periods() merges each period's list into one flat
+dict and strips a confirmed whitespace bug: several base-table keys carry a
+trailing non-breaking space (e.g. 'Sales\\xa0') that the vendored library's
+own key-cleaning (`.replace(" ", "")`) doesn't catch, since \\xa0 isn't an
+ASCII space. METRIC_MAP below is confirmed live 2026-07-14 against a real
+RELIANCE quarter -- both the core P&L fields and the "addon" schedule-derived
+bonus fields (YoY growth, cost %, exceptional items, minority share, etc.)
+that come along for free with quarterlyReport(withAddon=True).
 
 Usage:
     # explicit symbols
@@ -40,6 +34,9 @@ Usage:
 
     # omit --symbols for the full Nifty 500 universe from index_membership
     python src/fetch_financial_results.py
+
+    # skip the annual P&L pull, quarterly only
+    python src/fetch_financial_results.py --symbols RELIANCE --no-annual
 
 Not included in run_nightly.sh: like shareholding_pattern, this is a
 quarterly-cadence dataset -- polling 500 symbols against screener.in every
@@ -49,16 +46,14 @@ night for data that changes ~4x/year would be wasted load. Run periodically
 import argparse
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
+from screener_common import flatten_periods, find_disclosure, period_type
 
-DISCLOSURE_WINDOW_DAYS = 65  # SEBI: 45 days (Q1-Q3) / 60 days (Q4, annual) + buffer
-
-# screener.in row-label -> our column name. Keys are the literal UI labels
-# with spaces/"+' stripped by screenerScraper.py's __pullData(), UNCONFIRMED
-# against a live scrape -- see the DATA SHAPE NOTE above.
+# screener.in row-label (after screener_common's whitespace normalization) ->
+# our column name. Confirmed live 2026-07-14 against a real RELIANCE quarter.
 METRIC_MAP = {
     "Sales": "sales",
     "Expenses": "expenses",
@@ -67,74 +62,46 @@ METRIC_MAP = {
     "OtherIncome": "other_income",
     "Interest": "interest",
     "Depreciation": "depreciation",
-    "ProfitbeforeTax": "profit_before_tax",
+    "Profitbeforetax": "profit_before_tax",
     "Tax%": "tax_pct",
     "NetProfit": "net_profit",
     "EPSinRs": "eps",
+    "YOYSalesGrowth%": "yoy_sales_growth_pct",
+    "MaterialCost%": "material_cost_pct",
+    "EmployeeCost%": "employee_cost_pct",
+    "Exceptionalitems": "exceptional_items",
+    "Otherincomenormal": "other_income_normal",
+    "ProfitfromAssociates": "profit_from_associates",
+    "Minorityshare": "minority_share",
+    "ExceptionalitemsAT": "exceptional_items_at",
+    "ProfitexclExcep": "profit_excl_exceptional",
+    "ProfitforPE": "profit_for_pe",
+    "ProfitforEPS": "profit_for_eps",
+    "YOYProfitGrowth%": "yoy_profit_growth_pct",
 }
+# RawPDF isn't a numeric metric -- handled separately as raw_pdf_url below.
+
+INSERT_COLUMNS = list(METRIC_MAP.values()) + ["raw_pdf_url"]
 
 
-def _flatten_quarters(raw: dict) -> dict:
-    """raw: {period_label: [{"Sales": 100.0}, {"Expenses": 80.0}, ...], ...}
-    (screener.in's actual return shape -- a dict, not a DataFrame).
-    Returns {period_label: {"Sales": 100.0, "Expenses": 80.0, ...}},
-    skipping "TTM" since it isn't a specific quarter."""
-    flattened = {}
-    for period, entries in raw.items():
-        if period == "TTM":
-            continue
-        merged = {}
-        for entry in entries:
-            merged.update(entry)
-        flattened[period] = merged
-    return flattened
-
-
-def _period_type(period_end_date: str) -> str:
-    """Indian fiscal quarters: Apr-Jun=Q1, Jul-Sep=Q2, Oct-Dec=Q3, Jan-Mar=Q4."""
-    month = int(period_end_date[5:7])
-    return {6: "Q1", 9: "Q2", 12: "Q3", 3: "Q4"}.get(month, "ANNUAL")
-
-
-def find_disclosure(conn, symbol: str, period_end_date: str):
-    """Find the earliest 'financial result' announcement for this symbol
-    within DISCLOSURE_WINDOW_DAYS of period_end_date. Returns
-    (disclosure_date, seq_id) or (None, None) if nothing matches -- callers
-    must skip the row in that case, not fall back to any default date."""
-    window_end = (datetime.strptime(period_end_date, "%Y-%m-%d")
-                  + timedelta(days=DISCLOSURE_WINDOW_DAYS)).strftime("%Y-%m-%d")
-    row = conn.execute(
-        """
-        SELECT announcement_date, seq_id FROM corporate_announcements
-        WHERE symbol = ?
-          AND announcement_date >= ?
-          AND announcement_date <= ?
-          AND (subject LIKE '%financial result%' OR details LIKE '%financial result%')
-        ORDER BY announcement_date ASC
-        LIMIT 1
-        """,
-        (symbol, period_end_date, window_end),
-    ).fetchone()
-    return (row[0], row[1]) if row else (None, None)
-
-
-def build_rows(conn, symbol: str, quarters: dict, result_type: str, fetched_at: str) -> list:
+def build_rows(conn, symbol: str, periods: dict, result_type: str, annual: bool, fetched_at: str) -> list:
     rows = []
-    for period_end_date, metrics in quarters.items():
+    for period_end_date, metrics in periods.items():
         disclosure_date, seq_id = find_disclosure(conn, symbol, period_end_date)
         if not disclosure_date:
             print(f"    SKIP {symbol} {period_end_date} ({result_type}): no matching "
                   f"'financial result' announcement in corporate_announcements within "
-                  f"{DISCLOSURE_WINDOW_DAYS} days -- not guessing a disclosure date.",
+                  f"the disclosure window -- not guessing a disclosure date.",
                   file=sys.stderr)
             continue
 
         values = {col: metrics.get(label) for label, col in METRIC_MAP.items()}
+        values["raw_pdf_url"] = metrics.get("RawPDF")
+
         rows.append((
-            symbol, disclosure_date, period_end_date, _period_type(period_end_date), result_type,
-            values["sales"], values["expenses"], values["operating_profit"], values["opm_pct"],
-            values["other_income"], values["interest"], values["depreciation"],
-            values["profit_before_tax"], values["tax_pct"], values["net_profit"], values["eps"],
+            symbol, disclosure_date, period_end_date,
+            period_type(period_end_date, annual=annual), result_type,
+            *[values[col] for col in INSERT_COLUMNS],
             seq_id, "SCREENER", fetched_at,
         ))
     return rows
@@ -143,37 +110,25 @@ def build_rows(conn, symbol: str, quarters: dict, result_type: str, fetched_at: 
 def upsert(conn, rows: list):
     if not rows:
         return
+    columns = ["symbol", "disclosure_date", "period_end_date", "period_type", "result_type"] + \
+              INSERT_COLUMNS + ["disclosure_seq_id", "source", "fetched_at"]
+    placeholders = ", ".join(["?"] * len(columns))
+    update_cols = [c for c in columns if c not in
+                   ("symbol", "period_end_date", "result_type", "source")]
+    update_clause = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
     conn.executemany(
-        """
-        INSERT INTO financial_results
-            (symbol, disclosure_date, period_end_date, period_type, result_type,
-             sales, expenses, operating_profit, opm_pct, other_income, interest,
-             depreciation, profit_before_tax, tax_pct, net_profit, eps,
-             disclosure_seq_id, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        f"""
+        INSERT INTO financial_results ({", ".join(columns)})
+        VALUES ({placeholders})
         ON CONFLICT(symbol, period_end_date, result_type) DO UPDATE SET
-            disclosure_date=excluded.disclosure_date,
-            period_type=excluded.period_type,
-            sales=excluded.sales,
-            expenses=excluded.expenses,
-            operating_profit=excluded.operating_profit,
-            opm_pct=excluded.opm_pct,
-            other_income=excluded.other_income,
-            interest=excluded.interest,
-            depreciation=excluded.depreciation,
-            profit_before_tax=excluded.profit_before_tax,
-            tax_pct=excluded.tax_pct,
-            net_profit=excluded.net_profit,
-            eps=excluded.eps,
-            disclosure_seq_id=excluded.disclosure_seq_id,
-            fetched_at=excluded.fetched_at
+            {update_clause}
         """,
         rows,
     )
     conn.commit()
 
 
-def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, fetched_at: str) -> list:
+def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, fetch_annual: bool, fetched_at: str) -> list:
     token = scraper.getBSEToken(symbol)
     if not token:
         print(f"    FAILED for {symbol}: no BSE token found (NSE and BSE symbols "
@@ -184,11 +139,15 @@ def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, fetched_at: str) ->
     for consolidated, result_type in ((True, "CONSOLIDATED"), (False, "STANDALONE")):
         try:
             scraper.loadScraper(token, consolidated=consolidated)
-            raw = scraper.quarterlyReport(withAddon=True)
-            quarters = _flatten_quarters(raw)
-            if not quarters:
-                continue
-            all_rows.extend(build_rows(conn, symbol, quarters, result_type, fetched_at))
+
+            quarters = flatten_periods(scraper.quarterlyReport(withAddon=True))
+            if quarters:
+                all_rows.extend(build_rows(conn, symbol, quarters, result_type, False, fetched_at))
+
+            if fetch_annual:
+                annual_periods = flatten_periods(scraper.pnlReport(withAddon=True))
+                if annual_periods:
+                    all_rows.extend(build_rows(conn, symbol, annual_periods, result_type, True, fetched_at))
         except Exception as e:
             print(f"    FAILED for {symbol} ({result_type}): {e}", file=sys.stderr)
     return all_rows
@@ -199,6 +158,8 @@ def main():
     parser.add_argument("--symbols", nargs="+",
                          help="NSE symbols, e.g. RELIANCE TCS INFY. "
                               "Omit to use the full Nifty 500 universe from index_membership.")
+    parser.add_argument("--no-annual", action="store_true",
+                         help="skip the annual P&L pull (pnlReport), quarterly only")
     parser.add_argument("--sleep", type=float, default=1.0,
                          help="seconds to sleep between symbols, be polite to screener.in/BSE")
     args = parser.parse_args()
@@ -220,14 +181,13 @@ def main():
     scraper = ScreenerScrape()
 
     total_upserted = 0
-    total_skipped_no_token = 0
     for i, symbol in enumerate(symbols):
         print(f"[{i+1}/{len(symbols)}] fetching {symbol} ...")
-        rows = fetch_symbol(scraper, conn, symbol, fetched_at)
+        rows = fetch_symbol(scraper, conn, symbol, not args.no_annual, fetched_at)
         if rows:
             upsert(conn, rows)
             total_upserted += len(rows)
-            print(f"    upserted {len(rows)} quarter rows")
+            print(f"    upserted {len(rows)} rows")
         time.sleep(args.sleep)
 
     if total_upserted == 0:

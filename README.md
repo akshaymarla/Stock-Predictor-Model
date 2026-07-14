@@ -12,7 +12,10 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
-| `financial_results` | `src/fetch_financial_results.py` | Built (screener.in via vendored `src/screenerScraper.py`), **tested with synthetic data, not yet run live** — see status note in the script itself |
+| `financial_results` | `src/fetch_financial_results.py` | Working (screener.in via vendored `src/screenerScraper.py`) — core + addon metric field names confirmed against a real live RELIANCE quarter; covers `quarterlyReport()` + `pnlReport()` (annual) |
+| `balance_sheet` | `src/fetch_balance_sheet.py` | Built, **unverified** — column names are a best guess, needs a live DevTools-style capture |
+| `cash_flow` | `src/fetch_cash_flow.py` | Built, **unverified** — column names are a best guess, needs a live capture |
+| `ratios` | `src/fetch_ratios.py` | Built, **unverified, lowest confidence** — no addon endpoint to anchor guesses against |
 | `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Working (confirmed end-to-end against live NSE data; dynamic universe, quarterly cadence so not in nightly by default) |
 
 ## Setup
@@ -85,22 +88,45 @@ actually a network issue:
   `datetime.now()`, which would have silently stamped years of historical
   results as "disclosed today" — a real violation of this project's
   point-in-time rule, caught before it was ever run. The fix:
-  `disclosure_date` is derived by joining against our own confirmed-live
+  `disclosure_date` is derived (in `src/screener_common.py`, shared by every
+  screener.in-sourced script) by joining against our own confirmed-live
   `corporate_announcements` table for the earliest "financial result"
   announcement within 65 days of quarter-end (a SEBI-mandated disclosure
   window, not an arbitrary guess); if nothing matches, the quarter is
   **skipped and logged**, never defaulted. Also caught before running live:
   `quarterlyReport()` returns a plain `dict` (`{"2025-06-30": [{"Sales":
-  100.0}, ...], ...}`), not a `pandas.DataFrame` as the first draft assumed
-  — `_flatten_quarters()` handles the real shape. Tested end-to-end with
-  synthetic data matching the library's actual return shape: quarter
-  flattening, period-type derivation, disclosure-date matching (both the
-  match and no-match/skip paths), missing-BSE-token handling, and
-  idempotent upsert. Not yet run live — screener.in/BSE aren't reachable
-  from this sandbox. Metric key names (`OperatingProfit`, `OPM%`, etc.) come
-  from screener.in's literal UI labels and are unconfirmed against a live
-  scrape; if a live run matches quarters but parses 0 metrics, that's the
-  first thing to check.
+  100.0}, ...], ...}`), not a `pandas.DataFrame` as the first draft assumed.
+  **Confirmed 2026-07-14 against a real live RELIANCE quarter**: most base
+  metric keys carry a trailing non-breaking space the vendored library's own
+  `.replace(" ", "")` doesn't strip (e.g. `'Sales\xa0'`), which was silently
+  producing `NULL` values for `sales`/`expenses`/`other_income`/`net_profit`
+  — fixed by normalizing keys centrally in
+  `screener_common.flatten_periods()` instead of hardcoding the broken
+  strings. Also fixed a casing mismatch (`Profitbeforetax`, not
+  `ProfitbeforeTax`). The same real capture revealed a set of "addon" bonus
+  fields that come free with `quarterlyReport(withAddon=True)` — YoY
+  growth %, material/employee cost %, exceptional items, minority share,
+  and the underlying filing PDF link — all now captured as extra columns.
+  `pnlReport()` (annual P&L, same shape) is now also pulled into the same
+  table with `period_type='ANNUAL'`. Tested end-to-end against the exact
+  real payload plus synthetic data for the skip/no-match path,
+  missing-BSE-token handling, and idempotent upsert.
+
+- **`fetch_balance_sheet.py`**, **`fetch_cash_flow.py`**, **`fetch_ratios.py`**
+  (2026-07-14): same architecture and shared point-in-time logic as
+  `fetch_financial_results.py` (via `src/screener_common.py`), but their
+  `COLUMN_MAP`s are **unverified guesses**, not yet checked against a live
+  scrape. Deliberately use `withAddon=False` for balance sheet and cash
+  flow — traced through `screenerScraper.py`'s `__addonData()` and found
+  that the addon endpoint dict keys (`Borrowing`, `TotalAssets`, etc.) only
+  name request URLs, not actual returned fields (those are unconfirmed
+  sub-line-item breakdowns) — so these two rely only on the base summary
+  table, a smaller and more defensible guess. `ratios()` has no addon
+  endpoint at all, making it the lowest-confidence of the four. Plumbing
+  (build/upsert/skip-on-no-match) tested with synthetic data; field names
+  need the same live-capture-then-fix round `fetch_financial_results.py`
+  already went through — each script's docstring has the exact diagnostic
+  command to run.
 
 - **`fetch_shareholding_pattern.py`**: field names AND values confirmed
   2026-07-13 against a real HDFCBANK row (`recordId`, `isin`,
@@ -149,10 +175,16 @@ python src/fetch_corporate_announcements.py
 # no args -- defaults to today only (nightly-run friendly)
 # --years 5 for a one-time historical backfill, or --from-date/--to-date for a custom range
 
-# Financial results (screener.in) -- not yet run live, see status note in the script itself
+# Financial results (screener.in) -- quarterly + annual P&L, confirmed working
 python src/fetch_financial_results.py --symbols RELIANCE TCS
-# omit --symbols to fetch the full Nifty 500 universe from index_membership instead
+# omit --symbols for the full Nifty 500 universe, --no-annual to skip pnlReport()
 # (quarterly cadence -- not in run_nightly.sh, same reasoning as shareholding_pattern)
+
+# Balance sheet / cash flow / ratios (screener.in) -- UNVERIFIED, see status note in each script
+python src/fetch_balance_sheet.py --symbols RELIANCE TCS
+python src/fetch_cash_flow.py --symbols RELIANCE TCS
+python src/fetch_ratios.py --symbols RELIANCE TCS
+# omit --symbols for the full Nifty 500 universe from index_membership
 
 # Shareholding pattern -- confirmed against live NSE data
 python src/fetch_shareholding_pattern.py --symbols RELIANCE TCS INFY
@@ -189,6 +221,27 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-14**: Confirmed `financial_results` live against a real
+  RELIANCE quarter and fixed what it found: several base metric keys carry
+  a trailing non-breaking space (`'Sales\xa0'` etc.) that the vendored
+  library's own key-cleaning misses, silently nulling out `sales`,
+  `expenses`, `other_income`, and `net_profit` — fixed by normalizing keys
+  centrally in new `src/screener_common.py` (shared by every screener.in
+  script) rather than hardcoding the broken strings. Also fixed a casing
+  mismatch (`Profitbeforetax`). Added 12 new columns for "addon" bonus
+  fields confirmed in that same capture (YoY growth %, cost breakdowns,
+  exceptional items, minority share, source PDF link) and wired in
+  `pnlReport()` (annual P&L) into the same table via `--no-annual` to
+  opt out. Local `data/nifty_pipeline.db`'s `financial_results` table (50
+  rows from the prior buggy run) migrated non-destructively via `ALTER
+  TABLE ADD COLUMN` — existing rows preserved, their null metric columns
+  will self-correct on the next fetch run via the idempotent upsert.
+  Added three new tables + scripts on the same architecture:
+  `balance_sheet`, `cash_flow`, `ratios` (`fetch_balance_sheet.py`,
+  `fetch_cash_flow.py`, `fetch_ratios.py`) — all share
+  `src/screener_common.py`'s disclosure-date derivation, all **unverified**
+  pending a live capture the same way `financial_results` just went
+  through (each script's docstring has the exact diagnostic command).
 - **2026-07-14**: Re-architected `financial_results` around screener.in
   (vendored `src/screenerScraper.py` from github.com/BuildAlgos/screener-scraper,
   added `beautifulsoup4` to `requirements.txt`, `src/tokens/` gitignored —

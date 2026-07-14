@@ -70,47 +70,152 @@ CREATE INDEX IF NOT EXISTS idx_corp_announcements_symbol ON corporate_announceme
 CREATE INDEX IF NOT EXISTS idx_corp_announcements_date ON corporate_announcements(announcement_date);
 
 -- Financial metrics come from screener.in (via the vendored screenerScraper.py,
--- see src/screenerScraper.py), which only exposes the quarter-END date --
--- it has NO disclosure/announcement timestamp anywhere in its data. So
--- disclosure_date here is NOT taken from screener.in directly -- it's derived
--- by joining against our own corporate_announcements table (confirmed live
--- NSE data) for the earliest "financial result"-type announcement dated
--- between period_end_date and period_end_date+65 days (SEBI mandates
--- disclosure within 45-60 days of quarter-end, so this window is a real
--- regulatory bound, not a guess). disclosure_seq_id records which
+-- see src/screenerScraper.py and src/screener_common.py), which only exposes
+-- the quarter/year-END date -- it has NO disclosure/announcement timestamp
+-- anywhere in its data. So disclosure_date here is NOT taken from screener.in
+-- directly -- it's derived by joining against our own corporate_announcements
+-- table (confirmed live NSE data) for the earliest "financial result"-type
+-- announcement dated between period_end_date and period_end_date+65 days
+-- (SEBI mandates disclosure within 45-60 days of quarter-end, so this window
+-- is a real regulatory bound, not a guess). disclosure_seq_id records which
 -- corporate_announcements row was matched, for audit. If no announcement is
 -- found in that window, the row is skipped entirely at fetch time rather
--- than defaulting to today's date -- see fetch_financial_results.py.
+-- than defaulting to today's date -- see screener_common.find_disclosure().
 -- period_end_date is descriptive only, never a join key: results for a
 -- quarter ending months ago can be disclosed today, and joining on
 -- period_end_date would leak that lag into a backtest. Note: period_end_date
--- is the 1st of the quarter-ending month (screener.in's header format only
--- has month+year, not the exact last day) -- fine since it's descriptive-only.
+-- is the 1st of the quarter/year-ending month (screener.in's header format
+-- only has month+year, not the exact last day) -- fine since it's
+-- descriptive-only. This table holds BOTH quarterly (fetch_financial_results.py
+-- quarterlyReport()) and annual (pnlReport(), period_type='ANNUAL') results --
+-- same P&L shape, just different reporting cadence.
+--
+-- Core metric columns confirmed live 2026-07-14 against a real RELIANCE
+-- quarter (field names matched after fixing a whitespace-normalization bug --
+-- see screener_common.flatten_periods()). The metrics below RawPDF are
+-- screener.in's own "addon" schedule-derived fields, also confirmed live in
+-- that same capture (yoy_sales_growth_pct, material_cost_pct, etc.) -- these
+-- come along "for free" whenever quarterlyReport(withAddon=True) is called
+-- and are kept since they're useful modeling features, not because they were
+-- specifically requested field-by-field.
 CREATE TABLE IF NOT EXISTS financial_results (
-    symbol            TEXT NOT NULL,
-    disclosure_date   TEXT NOT NULL,   -- derived from corporate_announcements -- join key
-    period_end_date   TEXT NOT NULL,   -- quarter-ending month from screener.in -- NOT a join key
-    period_type       TEXT,            -- 'Q1', 'Q2', 'Q3', 'Q4', or 'ANNUAL', derived from period_end_date
-    result_type       TEXT NOT NULL,   -- 'STANDALONE' or 'CONSOLIDATED'
-    sales             REAL,
-    expenses          REAL,
-    operating_profit  REAL,
-    opm_pct           REAL,
-    other_income      REAL,
-    interest          REAL,
-    depreciation      REAL,
-    profit_before_tax REAL,
-    tax_pct           REAL,
-    net_profit        REAL,
-    eps               REAL,
-    disclosure_seq_id TEXT,            -- corporate_announcements.seq_id used to derive disclosure_date
-    source            TEXT NOT NULL,   -- 'SCREENER'
-    fetched_at        TEXT NOT NULL,
+    symbol                  TEXT NOT NULL,
+    disclosure_date         TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    period_end_date         TEXT NOT NULL,   -- quarter/year-ending month from screener.in -- NOT a join key
+    period_type             TEXT,            -- 'Q1'/'Q2'/'Q3'/'Q4' (quarterlyReport) or 'ANNUAL' (pnlReport)
+    result_type             TEXT NOT NULL,   -- 'STANDALONE' or 'CONSOLIDATED'
+    sales                   REAL,
+    expenses                REAL,
+    operating_profit        REAL,
+    opm_pct                 REAL,
+    other_income            REAL,
+    interest                REAL,
+    depreciation            REAL,
+    profit_before_tax       REAL,
+    tax_pct                 REAL,
+    net_profit              REAL,
+    eps                     REAL,
+    raw_pdf_url             TEXT,            -- screener.in's link to the underlying source filing
+    yoy_sales_growth_pct    REAL,
+    material_cost_pct       REAL,
+    employee_cost_pct       REAL,
+    exceptional_items       REAL,
+    other_income_normal     REAL,            -- other income excluding exceptional items, per screener.in
+    profit_from_associates  REAL,
+    minority_share          REAL,
+    exceptional_items_at    REAL,            -- exceptional items, after tax
+    profit_excl_exceptional REAL,
+    profit_for_pe           REAL,
+    profit_for_eps          REAL,
+    yoy_profit_growth_pct   REAL,
+    disclosure_seq_id       TEXT,            -- corporate_announcements.seq_id used to derive disclosure_date
+    source                  TEXT NOT NULL,   -- 'SCREENER'
+    fetched_at              TEXT NOT NULL,
     PRIMARY KEY (symbol, period_end_date, result_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_results_symbol ON financial_results(symbol);
 CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_results(disclosure_date);
+
+-- Same point-in-time reasoning and disclosure-matching as financial_results
+-- above -- see screener_common.find_disclosure(). UNVERIFIED: unlike
+-- financial_results, these column names are a best guess based on
+-- screenerScraper.py's addon endpoint labels (Borrowing, TotalAssets/Fixed
+-- Assets, OtherLiabilities, OtherAssets) and screener.in's commonly-known
+-- balance sheet layout -- NOT yet confirmed against a live scrape. Expect a
+-- fix-up round the same way financial_results needed one.
+CREATE TABLE IF NOT EXISTS balance_sheet (
+    symbol             TEXT NOT NULL,
+    disclosure_date    TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    period_end_date    TEXT NOT NULL,   -- NOT a join key
+    period_type        TEXT,
+    result_type        TEXT NOT NULL,
+    equity_capital     REAL,
+    reserves           REAL,
+    borrowings         REAL,
+    other_liabilities  REAL,
+    total_liabilities  REAL,
+    fixed_assets       REAL,
+    cwip               REAL,
+    investments        REAL,
+    other_assets       REAL,
+    total_assets       REAL,
+    disclosure_seq_id  TEXT,
+    source             TEXT NOT NULL,
+    fetched_at         TEXT NOT NULL,
+    PRIMARY KEY (symbol, period_end_date, result_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_balance_sheet_symbol ON balance_sheet(symbol);
+CREATE INDEX IF NOT EXISTS idx_balance_sheet_disclosure_date ON balance_sheet(disclosure_date);
+
+-- Same point-in-time reasoning as financial_results. UNVERIFIED: column
+-- names are a best guess based on screenerScraper.py's addon endpoint labels
+-- (OperatingAct, FinancingAct, InvestingAct) -- NOT yet confirmed live.
+CREATE TABLE IF NOT EXISTS cash_flow (
+    symbol               TEXT NOT NULL,
+    disclosure_date      TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    period_end_date      TEXT NOT NULL,   -- NOT a join key
+    period_type          TEXT,
+    result_type          TEXT NOT NULL,
+    cash_from_operating  REAL,
+    cash_from_investing  REAL,
+    cash_from_financing  REAL,
+    net_cash_flow        REAL,
+    disclosure_seq_id    TEXT,
+    source                TEXT NOT NULL,
+    fetched_at            TEXT NOT NULL,
+    PRIMARY KEY (symbol, period_end_date, result_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cash_flow_symbol ON cash_flow(symbol);
+CREATE INDEX IF NOT EXISTS idx_cash_flow_disclosure_date ON cash_flow(disclosure_date);
+
+-- Same point-in-time reasoning as financial_results. UNVERIFIED, and the
+-- least confident of the four screener.in tables -- ratios() has no addon
+-- fetch to hint at field names from, so the columns below are a rough guess
+-- at screener.in's commonly-shown ratio set. Expect this one to need the
+-- most fixing after a live dry run; consider it a placeholder until then.
+CREATE TABLE IF NOT EXISTS ratios (
+    symbol                   TEXT NOT NULL,
+    disclosure_date          TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    period_end_date          TEXT NOT NULL,   -- NOT a join key
+    period_type              TEXT,
+    result_type              TEXT NOT NULL,
+    debtor_days              REAL,
+    inventory_days           REAL,
+    days_payable             REAL,
+    cash_conversion_cycle    REAL,
+    working_capital_days     REAL,
+    roce_pct                 REAL,
+    disclosure_seq_id        TEXT,
+    source                   TEXT NOT NULL,
+    fetched_at                TEXT NOT NULL,
+    PRIMARY KEY (symbol, period_end_date, result_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ratios_symbol ON ratios(symbol);
+CREATE INDEX IF NOT EXISTS idx_ratios_disclosure_date ON ratios(disclosure_date);
 
 -- Confirmed 2026-07-13 against a real HDFCBANK row. recordId is NSE's own
 -- unique row id -- same reasoning as seq_id in corporate_announcements,
