@@ -254,6 +254,41 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-15**: Ran the first full historical seed across the entire
+  Nifty 500 universe (`./run_historical_seed.sh`, ~9 hours end-to-end,
+  13:59–23:11) to establish a baseline and surface anything that breaks at
+  real scale before model-building starts. Added `RUNBOOK.md` (operational
+  companion to this file — *when* things run, not *what's* been built) and
+  the orchestration script itself. Final row counts: `daily_prices` 553,712,
+  `corporate_announcements` 813,037, `shareholding_pattern` 17,670,
+  `financial_results` 6,459, `balance_sheet`/`cash_flow`/`ratios` ~1,550
+  each, `surveillance_flags` 447, `index_membership` 1,000.
+
+  Two real issues found and fixed along the way:
+  - `backfill_prices.py` hung indefinitely (90+ min, no progress) after a
+    transient DNS blip mid-run. Root cause: `jugaad_data`'s
+    `NSEHistory._get()` calls `requests.Session.get()` with no `timeout=`
+    at all — not fixable by editing the dependency directly, so `src/db.py`
+    now monkeypatches a 20s default timeout onto `requests.Session.request`
+    process-wide at import time (every fetch script already does
+    `from db import get_conn`, so this covers `jugaad_data`,
+    `screenerScraper.py`, and our own scripts without touching each one).
+    The hung process was killed and the step re-run to completion
+    (500/500 symbols). Confirmed the fix works as intended later in the
+    same run: a second DNS blip during `fetch_cash_flow.py` (AAVAS, ABB,
+    BLUEDART) failed fast instead of hanging, and a targeted re-run for
+    those 3 symbols closed the gap cleanly.
+  - `run_historical_seed.sh`'s log paths were relative and broke the
+    instant the script did `cd src` partway through — every step failed
+    silently (redirected into a nonexistent directory) before any Python
+    ran. Fixed by computing `$PROJECT_ROOT`/`$LOGS_DIR` as absolute paths
+    once at the top.
+
+  One known, pre-existing gap confirmed (not introduced by this run): BSE
+  and CDSL fail on all four screener.in-sourced scripts with "no BSE token
+  found" — their screener.in company-page token doesn't match the NSE
+  symbol. Not yet resolved; affects 2 of ~500 symbols.
+
 - **2026-07-15**: Confirmed `cash_flow` (all 4 columns) and `ratios` (all 6
   columns) live against real RELIANCE data — both matched their original
   guesses exactly on the first try, same as `balance_sheet` earlier today.
