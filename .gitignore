@@ -4,3 +4,7 @@ data/backfill_checkpoint.json
 logs/
 __pycache__/
 *.pyc
+
+# screenerScraper.py's downloaded BSE ticker/token cache (public metadata,
+# not secrets, but a runtime artifact re-fetched daily -- not source code)
+src/tokens/

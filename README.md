@@ -12,7 +12,7 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
-| `financial_results` | `src/fetch_financial_results.py` | Built, **unverified** — field names are a best guess, needs your DevTools check |
+| `financial_results` | `src/fetch_financial_results.py` | Built (screener.in via vendored `src/screenerScraper.py`), **tested with synthetic data, not yet run live** — see status note in the script itself |
 | `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Working (confirmed end-to-end against live NSE data; dynamic universe, quarterly cadence so not in nightly by default) |
 
 ## Setup
@@ -76,18 +76,31 @@ actually a network issue:
   exactly, no code changes needed. `parse_csv()` and the idempotent upsert
   were tested end-to-end against the real file contents.
 
-- **`fetch_financial_results.py`**: same situation as
-  `fetch_corporate_announcements.py` — field names
-  (`re_broadcast_timestamp`, `re_end_date`, `re_cons`, etc.) are a best
-  guess, not confirmed against a live response. `parse_results()` and the
-  idempotent upsert were tested end-to-end with synthetic NSE-shaped
-  payloads (including a re-upsert to confirm no duplicate rows). The
-  point-in-time discipline is baked into the schema itself:
-  `disclosure_date` (broadcast timestamp) is the join key, `period_end_date`
-  (fiscal quarter-end) is descriptive-only and must never be used to
-  determine what was "known as of" a date. If the live endpoint 0-rows or
-  errors, same fix path as the other unverified scripts — DevTools capture
-  needed.
+- **`fetch_financial_results.py`**: completely re-architected 2026-07-14
+  around the vendored `src/screenerScraper.py` (screener.in scraper,
+  github.com/BuildAlgos/screener-scraper) instead of a guessed NSE endpoint.
+  **Key finding from reading the real library**: screener.in's data has no
+  disclosure/announcement timestamp at all — only the quarter-end date. An
+  earlier draft of this integration defaulted unmatched quarters to
+  `datetime.now()`, which would have silently stamped years of historical
+  results as "disclosed today" — a real violation of this project's
+  point-in-time rule, caught before it was ever run. The fix:
+  `disclosure_date` is derived by joining against our own confirmed-live
+  `corporate_announcements` table for the earliest "financial result"
+  announcement within 65 days of quarter-end (a SEBI-mandated disclosure
+  window, not an arbitrary guess); if nothing matches, the quarter is
+  **skipped and logged**, never defaulted. Also caught before running live:
+  `quarterlyReport()` returns a plain `dict` (`{"2025-06-30": [{"Sales":
+  100.0}, ...], ...}`), not a `pandas.DataFrame` as the first draft assumed
+  — `_flatten_quarters()` handles the real shape. Tested end-to-end with
+  synthetic data matching the library's actual return shape: quarter
+  flattening, period-type derivation, disclosure-date matching (both the
+  match and no-match/skip paths), missing-BSE-token handling, and
+  idempotent upsert. Not yet run live — screener.in/BSE aren't reachable
+  from this sandbox. Metric key names (`OperatingProfit`, `OPM%`, etc.) come
+  from screener.in's literal UI labels and are unconfirmed against a live
+  scrape; if a live run matches quarters but parses 0 metrics, that's the
+  first thing to check.
 
 - **`fetch_shareholding_pattern.py`**: field names AND values confirmed
   2026-07-13 against a real HDFCBANK row (`recordId`, `isin`,
@@ -136,8 +149,10 @@ python src/fetch_corporate_announcements.py
 # no args -- defaults to today only (nightly-run friendly)
 # --years 5 for a one-time historical backfill, or --from-date/--to-date for a custom range
 
-# Financial results -- UNVERIFIED, see status note in the script itself
-python src/fetch_financial_results.py --from-date 01-04-2026 --to-date 13-07-2026
+# Financial results (screener.in) -- not yet run live, see status note in the script itself
+python src/fetch_financial_results.py --symbols RELIANCE TCS
+# omit --symbols to fetch the full Nifty 500 universe from index_membership instead
+# (quarterly cadence -- not in run_nightly.sh, same reasoning as shareholding_pattern)
 
 # Shareholding pattern -- confirmed against live NSE data
 python src/fetch_shareholding_pattern.py --symbols RELIANCE TCS INFY
@@ -174,6 +189,32 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-14**: Re-architected `financial_results` around screener.in
+  (vendored `src/screenerScraper.py` from github.com/BuildAlgos/screener-scraper,
+  added `beautifulsoup4` to `requirements.txt`, `src/tokens/` gitignored —
+  its downloaded BSE ticker cache, not secrets). Schema upgraded to the
+  granular metrics screener.in actually provides (`sales`, `expenses`,
+  `operating_profit`, `opm_pct`, `other_income`, `interest`, `depreciation`,
+  `profit_before_tax`, `tax_pct`, `net_profit`, `eps`), primary key changed
+  to `(symbol, period_end_date, result_type)` since `disclosure_date` is now
+  a derived value, not a natural key. Caught and fixed two issues in an
+  earlier integration draft before it ever ran: (1) it defaulted
+  `disclosure_date` to `datetime.now()` for any quarter it couldn't match
+  via crude keyword text — since screener.in has no announcement timestamp
+  at all, this would have silently mislabeled most historical quarters as
+  "disclosed today"; fixed by deriving `disclosure_date` from our own
+  confirmed `corporate_announcements` table (earliest "financial result"
+  announcement within a 65-day SEBI-mandated disclosure window; no match =
+  skip and log, never a fabricated date). (2) It assumed `quarterlyReport()`
+  returns a `pandas.DataFrame`; it actually returns a `dict` of
+  `{quarter_label: [{metric: value}, ...]}` — would have crashed
+  immediately with `AttributeError` on the very first call. Tested
+  end-to-end with synthetic data shaped like the vendored library's real
+  return type, including both the disclosure-match and skip-on-no-match
+  paths. Not yet run live (screener.in/BSE unreachable from this sandbox).
+  Local `data/nifty_pipeline.db`'s `financial_results` table (0 rows, old
+  schema) migrated the same way `shareholding_pattern` was — dropped and
+  recreated, nothing lost.
 - **2026-07-13**: Fixed a cryptic crash in `fetch_daily_prices.py` —
   `FAILED for RHIM: "None of [Index(['CH_TIMESTAMP', ...])] are in the
   [columns]"` — hit on a live same-day-only run across ~all symbols. Root

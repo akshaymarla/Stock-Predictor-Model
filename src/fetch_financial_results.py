@@ -1,137 +1,171 @@
 """
-Fetches quarterly/annual financial results (revenue, net profit, EPS) from
-NSE and loads them into `financial_results`.
+Fetches granular quarterly financial results (sales, expenses, operating
+profit, OPM%, etc.) from screener.in via the vendored src/screenerScraper.py
+(github.com/BuildAlgos/screener-scraper) and loads them into
+`financial_results`.
 
-STATUS: UNVERIFIED -- same situation corporate_announcements started in.
-Rendered from https://www.nseindia.com/companies-listing/corporate-filings-financial-results
-The endpoint URL and params below (`/api/corporates-financial-results?index=equities`)
-are the pattern used by several working open-source NSE scrapers, but I have
-NOT confirmed the exact field names against a live response. Expect this to
-need one round of fixing:
+POINT-IN-TIME NOTE -- read before touching this file:
+screener.in's data has NO disclosure/announcement timestamp anywhere --
+quarterlyReport() only returns the quarter-END date (parsed from the UI's
+column headers). Confirmed by reading screenerScraper.py directly: none of
+its methods except the separate corporateAnnouncements() (a different BSE
+API, not wired into the financial data) carry a broadcast/filing time.
 
-  1. Run it.
-  2. If it errors or the parsed row count is 0, open the page above in a
-     browser, DevTools -> Network -> XHR, find the real request, and send
-     me the URL + a sample response the same way you did for ASM/GSM --
-     I'll fix parse_results() to match.
+So disclosure_date is NOT read from screener.in. It's derived by joining
+against our own `corporate_announcements` table (confirmed live NSE data)
+for the earliest "financial result"-type announcement dated between
+period_end_date and period_end_date+65 days -- SEBI mandates disclosure
+within 45 days (Q1-Q3) or 60 days (Q4/annual) of quarter-end, so this window
+is a real regulatory bound, not a guess. If nothing matches in that window,
+the quarter is SKIPPED and logged -- never defaulted to today's date. That
+was a real bug in an earlier draft of this integration: silently stamping
+unmatched historical quarters with today() would have corrupted years of
+data with a fabricated "disclosed today" timestamp. A gap in the data is
+honest; a wrong date is a silent landmine.
 
-Likely field names based on common NSE financial-results API conventions
-(UNCONFIRMED, just my best starting guess):
-    symbol, re_broadcast_timestamp or bc_dt (broadcast/disclosure datetime --
-    THE point-in-time field, see schema.sql comment), re_end_date or toDate
-    (period-end date -- descriptive only, never join on this), re_cons or
-    consolidated ("Consolidated"/"Non-Consolidated"), re_revenue or
-    reNetSales, re_net_profit or reProfitLoss, re_eps or reBasicEPS,
-    reAttachment or attachmntFile (PDF url).
+DATA SHAPE NOTE: screener.in's scraper methods (quarterlyReport(), etc.)
+return a dict, NOT a pandas DataFrame -- {"2025-06-30": [{"Sales": 100.0},
+{"Expenses": 80.0}, ...], "TTM": [...]}, one single-key dict per metric row
+per quarter. _flatten_quarters() below merges each quarter's list into a
+single flat dict. "TTM" (trailing twelve months) is not a specific quarter
+and is skipped. Metric key names (e.g. "OperatingProfit", "OPM%") come from
+screener.in's literal UI row labels with spaces stripped -- these are NOT
+independently confirmed against a live scrape (no network access to
+screener.in from the sandbox this was built in); if a live run parses 0
+metrics for a matched quarter, that's the first thing to check.
 
 Usage:
-    python src/fetch_financial_results.py --from-date 01-04-2026 --to-date 13-07-2026
+    # explicit symbols
+    python src/fetch_financial_results.py --symbols RELIANCE TCS
+
+    # omit --symbols for the full Nifty 500 universe from index_membership
+    python src/fetch_financial_results.py
+
+Not included in run_nightly.sh: like shareholding_pattern, this is a
+quarterly-cadence dataset -- polling 500 symbols against screener.in every
+night for data that changes ~4x/year would be wasted load. Run periodically
+(e.g. monthly) instead.
 """
 import argparse
 import sys
-from datetime import datetime
-from typing import Optional
+import time
+from datetime import datetime, timedelta
 
-import requests
+from db import get_conn, get_universe
+from screenerScraper import ScreenerScrape
 
-from db import get_conn
+DISCLOSURE_WINDOW_DAYS = 65  # SEBI: 45 days (Q1-Q3) / 60 days (Q4, annual) + buffer
 
-BASE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
+# screener.in row-label -> our column name. Keys are the literal UI labels
+# with spaces/"+' stripped by screenerScraper.py's __pullData(), UNCONFIRMED
+# against a live scrape -- see the DATA SHAPE NOTE above.
+METRIC_MAP = {
+    "Sales": "sales",
+    "Expenses": "expenses",
+    "OperatingProfit": "operating_profit",
+    "OPM%": "opm_pct",
+    "OtherIncome": "other_income",
+    "Interest": "interest",
+    "Depreciation": "depreciation",
+    "ProfitbeforeTax": "profit_before_tax",
+    "Tax%": "tax_pct",
+    "NetProfit": "net_profit",
+    "EPSinRs": "eps",
 }
 
-RESULTS_URL = "https://www.nseindia.com/api/corporates-financial-results"
 
-
-def make_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update(BASE_HEADERS)
-    s.get("https://www.nseindia.com", timeout=10)  # sets cookies, same as ASM/GSM
-    return s
-
-
-def _extract_items(payload) -> list:
-    if isinstance(payload, dict):
-        return payload.get("data", payload.get("rows", []))
-    if isinstance(payload, list):
-        return payload
-    return []
-
-
-def _to_iso_date(raw) -> Optional[str]:
-    """Best guess: NSE tends to send dates like '10-Jul-2026' or with a time
-    component like '10-Jul-2026 18:32:11'. Falls back to the raw string
-    rather than crashing, so a format surprise doesn't kill the whole run."""
-    if not raw:
-        return None
-    for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
-        except ValueError:
+def _flatten_quarters(raw: dict) -> dict:
+    """raw: {period_label: [{"Sales": 100.0}, {"Expenses": 80.0}, ...], ...}
+    (screener.in's actual return shape -- a dict, not a DataFrame).
+    Returns {period_label: {"Sales": 100.0, "Expenses": 80.0, ...}},
+    skipping "TTM" since it isn't a specific quarter."""
+    flattened = {}
+    for period, entries in raw.items():
+        if period == "TTM":
             continue
-    return raw
+        merged = {}
+        for entry in entries:
+            merged.update(entry)
+        flattened[period] = merged
+    return flattened
 
 
-def _to_float(raw):
-    try:
-        return float(str(raw).replace(",", ""))
-    except (TypeError, ValueError):
-        return None
+def _period_type(period_end_date: str) -> str:
+    """Indian fiscal quarters: Apr-Jun=Q1, Jul-Sep=Q2, Oct-Dec=Q3, Jan-Mar=Q4."""
+    month = int(period_end_date[5:7])
+    return {6: "Q1", 9: "Q2", 12: "Q3", 3: "Q4"}.get(month, "ANNUAL")
 
 
-def parse_results(payload, fetched_at: str) -> list[tuple]:
+def find_disclosure(conn, symbol: str, period_end_date: str):
+    """Find the earliest 'financial result' announcement for this symbol
+    within DISCLOSURE_WINDOW_DAYS of period_end_date. Returns
+    (disclosure_date, seq_id) or (None, None) if nothing matches -- callers
+    must skip the row in that case, not fall back to any default date."""
+    window_end = (datetime.strptime(period_end_date, "%Y-%m-%d")
+                  + timedelta(days=DISCLOSURE_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    row = conn.execute(
+        """
+        SELECT announcement_date, seq_id FROM corporate_announcements
+        WHERE symbol = ?
+          AND announcement_date >= ?
+          AND announcement_date <= ?
+          AND (subject LIKE '%financial result%' OR details LIKE '%financial result%')
+        ORDER BY announcement_date ASC
+        LIMIT 1
+        """,
+        (symbol, period_end_date, window_end),
+    ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def build_rows(conn, symbol: str, quarters: dict, result_type: str, fetched_at: str) -> list:
     rows = []
-    for item in _extract_items(payload):
-        symbol = item.get("symbol")
-        # try a few plausible key names for the broadcast/disclosure datetime --
-        # this is the point-in-time field, NOT the period-end date
-        raw_disclosure = (item.get("re_broadcast_timestamp") or item.get("bc_dt")
-                           or item.get("broadcastDate") or item.get("an_dt"))
-        if not symbol or not raw_disclosure:
+    for period_end_date, metrics in quarters.items():
+        disclosure_date, seq_id = find_disclosure(conn, symbol, period_end_date)
+        if not disclosure_date:
+            print(f"    SKIP {symbol} {period_end_date} ({result_type}): no matching "
+                  f"'financial result' announcement in corporate_announcements within "
+                  f"{DISCLOSURE_WINDOW_DAYS} days -- not guessing a disclosure date.",
+                  file=sys.stderr)
             continue
-        disclosure_date = _to_iso_date(raw_disclosure)
 
-        raw_period_end = item.get("re_end_date") or item.get("toDate") or item.get("period_end")
-        period_end_date = _to_iso_date(raw_period_end)
-
-        consolidated_flag = (item.get("re_cons") or item.get("consolidated")
-                              or item.get("audited", ""))
-        result_type = ("CONSOLIDATED" if "consol" in str(consolidated_flag).lower()
-                        else "STANDALONE")
-
-        revenue = _to_float(item.get("re_revenue") or item.get("reNetSales"))
-        net_profit = _to_float(item.get("re_net_profit") or item.get("reProfitLoss"))
-        eps = _to_float(item.get("re_eps") or item.get("reBasicEPS"))
-        attachment = item.get("reAttachment") or item.get("attchmntFile")
-        period_type = item.get("re_qtr") or item.get("period") or None
-
+        values = {col: metrics.get(label) for label, col in METRIC_MAP.items()}
         rows.append((
-            symbol, disclosure_date, period_end_date, period_type, result_type,
-            revenue, net_profit, eps, attachment, "NSE", fetched_at,
+            symbol, disclosure_date, period_end_date, _period_type(period_end_date), result_type,
+            values["sales"], values["expenses"], values["operating_profit"], values["opm_pct"],
+            values["other_income"], values["interest"], values["depreciation"],
+            values["profit_before_tax"], values["tax_pct"], values["net_profit"], values["eps"],
+            seq_id, "SCREENER", fetched_at,
         ))
     return rows
 
 
-def upsert(conn, rows: list[tuple]):
+def upsert(conn, rows: list):
     if not rows:
         return
     conn.executemany(
         """
         INSERT INTO financial_results
             (symbol, disclosure_date, period_end_date, period_type, result_type,
-             revenue, net_profit, eps, attachment_url, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(symbol, disclosure_date, period_end_date, result_type)
-        DO UPDATE SET
+             sales, expenses, operating_profit, opm_pct, other_income, interest,
+             depreciation, profit_before_tax, tax_pct, net_profit, eps,
+             disclosure_seq_id, source, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol, period_end_date, result_type) DO UPDATE SET
+            disclosure_date=excluded.disclosure_date,
             period_type=excluded.period_type,
-            revenue=excluded.revenue,
+            sales=excluded.sales,
+            expenses=excluded.expenses,
+            operating_profit=excluded.operating_profit,
+            opm_pct=excluded.opm_pct,
+            other_income=excluded.other_income,
+            interest=excluded.interest,
+            depreciation=excluded.depreciation,
+            profit_before_tax=excluded.profit_before_tax,
+            tax_pct=excluded.tax_pct,
             net_profit=excluded.net_profit,
             eps=excluded.eps,
-            attachment_url=excluded.attachment_url,
+            disclosure_seq_id=excluded.disclosure_seq_id,
             fetched_at=excluded.fetched_at
         """,
         rows,
@@ -139,40 +173,70 @@ def upsert(conn, rows: list[tuple]):
     conn.commit()
 
 
+def fetch_symbol(scraper: ScreenerScrape, conn, symbol: str, fetched_at: str) -> list:
+    token = scraper.getBSEToken(symbol)
+    if not token:
+        print(f"    FAILED for {symbol}: no BSE token found (NSE and BSE symbols "
+              f"can differ) -- skipping.", file=sys.stderr)
+        return []
+
+    all_rows = []
+    for consolidated, result_type in ((True, "CONSOLIDATED"), (False, "STANDALONE")):
+        try:
+            scraper.loadScraper(token, consolidated=consolidated)
+            raw = scraper.quarterlyReport(withAddon=True)
+            quarters = _flatten_quarters(raw)
+            if not quarters:
+                continue
+            all_rows.extend(build_rows(conn, symbol, quarters, result_type, fetched_at))
+        except Exception as e:
+            print(f"    FAILED for {symbol} ({result_type}): {e}", file=sys.stderr)
+    return all_rows
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--from-date", required=True, help="DD-MM-YYYY")
-    parser.add_argument("--to-date", required=True, help="DD-MM-YYYY")
+    parser.add_argument("--symbols", nargs="+",
+                         help="NSE symbols, e.g. RELIANCE TCS INFY. "
+                              "Omit to use the full Nifty 500 universe from index_membership.")
+    parser.add_argument("--sleep", type=float, default=1.0,
+                         help="seconds to sleep between symbols, be polite to screener.in/BSE")
     args = parser.parse_args()
 
     fetched_at = datetime.now().isoformat()
     conn = get_conn()
-    session = make_session()
 
-    params = {
-        "index": "equities",
-        "from_date": args.from_date,
-        "to_date": args.to_date,
-    }
-    try:
-        resp = session.get(RESULTS_URL, params=params, timeout=15)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        print(f"FAILED: {e}", file=sys.stderr)
-        print("See the STATUS note at the top of this file for how to fix it.",
+    symbols = args.symbols
+    if not symbols:
+        symbols = get_universe(conn)
+        if not symbols:
+            print("No --symbols given and index_membership is empty -- run "
+                  "fetch_index_membership.py first, or pass --symbols explicitly.",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"No --symbols given -- using the full Nifty 500 universe "
+              f"from index_membership ({len(symbols)} symbols).")
+
+    scraper = ScreenerScrape()
+
+    total_upserted = 0
+    total_skipped_no_token = 0
+    for i, symbol in enumerate(symbols):
+        print(f"[{i+1}/{len(symbols)}] fetching {symbol} ...")
+        rows = fetch_symbol(scraper, conn, symbol, fetched_at)
+        if rows:
+            upsert(conn, rows)
+            total_upserted += len(rows)
+            print(f"    upserted {len(rows)} quarter rows")
+        time.sleep(args.sleep)
+
+    if total_upserted == 0:
+        print("Upserted 0 rows total -- see stderr above for per-symbol failures "
+              "(missing BSE tokens, no disclosure match within the window, etc.).",
               file=sys.stderr)
         sys.exit(1)
 
-    rows = parse_results(payload, fetched_at)
-    if not rows:
-        print("Parsed 0 rows -- field names in parse_results() are "
-              "probably wrong. Grab a real response via DevTools and send "
-              "it over.", file=sys.stderr)
-        sys.exit(1)
-
-    upsert(conn, rows)
-    print(f"Done. Upserted {len(rows)} financial result rows.")
+    print(f"Done. Upserted {total_upserted} financial result rows across {len(symbols)} symbols.")
 
 
 if __name__ == "__main__":
