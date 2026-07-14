@@ -5,9 +5,16 @@ Created on Fri Jul 19 19:17:01 2024
 @author: Niraj
 
 Vendored from https://github.com/BuildAlgos/screener-scraper (2026-07-14).
-Unmodified from upstream -- see src/fetch_financial_results.py for the
-project-specific integration layer, including the point-in-time disclosure
-date logic this module does not provide on its own.
+See src/fetch_financial_results.py for the project-specific integration
+layer, including the point-in-time disclosure date logic this module does
+not provide on its own.
+
+Two small deviations from upstream (2026-07-15), both marked inline with
+"DEVIATION FROM UPSTREAM": __init__() and __addonData() now guard against
+requestAPI() returning None on a non-200 response (confirmed live -- this
+happens under screener.in's rate limiting), which previously crashed with
+cryptic TypeErrors instead of a catchable, readable message. No other logic
+changed.
 """
 
 from bs4 import BeautifulSoup
@@ -70,6 +77,14 @@ class stockScreener():
             baseurl = self.baseurl + self.endpoints['base']
             self.url = baseurl.format(token = token, consolidated = "" if not consolidated else "consolidated")
             content = self.requestAPI(method = "GET", url = self.url, content = True)
+            # DEVIATION FROM UPSTREAM (2026-07-15): requestAPI() returns None on a
+            # non-200 response (e.g. screener.in rate-limiting), which used to crash
+            # here with a cryptic "TypeError: object of type 'NoneType' has no len()"
+            # inside BeautifulSoup(). Raising a clear, catchable message instead.
+            if content is None:
+                raise Exception(f"screener.in returned no content for token={token} "
+                                 f"consolidated={consolidated} -- likely rate-limited, "
+                                 f"try a longer --sleep")
             self.soup = BeautifulSoup(content, 'html.parser')
             self.screenerID = self.getID()
             self.token = token
@@ -149,6 +164,12 @@ class stockScreener():
                 else:
                     url = self.baseurl + self.endpoints[section][tag].format(screenerID = self.screenerID, consolidated=self.__consoltag)
                 resp = self.requestAPI("GET", url)
+                # DEVIATION FROM UPSTREAM (2026-07-15): same None-guard reasoning as
+                # __init__ above -- a non-200 addon response (rate-limiting) used to
+                # crash with "TypeError: 'NoneType' object is not iterable". Skipping
+                # just this one addon tag instead of crashing the whole call.
+                if resp is None :
+                    continue
                 for key in resp :
                     _key = key.replace(" ", "")#.replace("%", "")
                     values = resp[key]

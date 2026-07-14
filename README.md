@@ -12,7 +12,7 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
-| `financial_results` | `src/fetch_financial_results.py` | Working (screener.in via vendored `src/screenerScraper.py`) — core + addon metric field names confirmed against a real live RELIANCE quarter; covers `quarterlyReport()` + `pnlReport()` (annual) |
+| `financial_results` | `src/fetch_financial_results.py` | Working (screener.in via vendored `src/screenerScraper.py`) — quarterly only; core + addon metric field names confirmed live, alias-based mapping for company-template variance (e.g. Sales vs Revenue) |
 | `balance_sheet` | `src/fetch_balance_sheet.py` | Built, **unverified** — column names are a best guess, needs a live DevTools-style capture |
 | `cash_flow` | `src/fetch_cash_flow.py` | Built, **unverified** — column names are a best guess, needs a live capture |
 | `ratios` | `src/fetch_ratios.py` | Built, **unverified, lowest confidence** — no addon endpoint to anchor guesses against |
@@ -112,6 +112,37 @@ actually a network issue:
   real payload plus synthetic data for the skip/no-match path,
   missing-BSE-token handling, and idempotent upsert.
 
+  **2026-07-15 update — annual data removed, alias-based field mapping,
+  rate-limit fixes.** A live multi-symbol run surfaced a real bug in the
+  "pull annual too" design above: a Q4 quarter (ending March) and the
+  annual/FY result share the *identical* period-end date, and this table's
+  primary key is `(symbol, period_end_date, result_type)` — so
+  `pnlReport()`'s annual row was silently overwriting the real Q4 quarterly
+  row on upsert. Confirmed on the live DB: HDFCBANK and TCS had **zero**
+  proper Q4 rows as a result. Fix: `pnlReport()`/annual data removed
+  entirely from this script (quarterly only, no `period_type='ANNUAL'`
+  possible anymore); local DB's 18 corrupted annual rows deleted, the
+  underlying quarterly data is intact and will repopulate on the next run.
+  Also confirmed live: different company templates use different row
+  labels for the same concept (e.g. a bank may use "Revenue" where a
+  manufacturer uses "Sales") — `METRIC_ALIASES` now maps each column to a
+  list of candidate labels instead of one fixed string, and logs any
+  unmapped keys to stderr when the primary revenue field doesn't match, so
+  new aliases can be added from real data instead of guessed upfront. Also
+  fixed the `TypeError: 'NoneType' object is not iterable` /
+  `object of type 'NoneType' has no len()` crashes seen on a live run —
+  root cause: `screenerScraper.py`'s `requestAPI()` returns `None` on a
+  non-200 response (screener.in rate-limiting, confirmed by request-volume
+  correlation — each symbol was firing up to 10 rapid requests with zero
+  internal pacing), and the vendored library didn't guard against that.
+  Patched two narrow `None` guards directly into `screenerScraper.py`
+  (marked inline as deviations from upstream, documented in its header) so
+  a rate-limit now raises a clear, catchable message instead of crashing.
+  Also added real pacing (sleep between the consolidated/standalone views,
+  not just between symbols, default raised to 2s) and
+  `--consolidated-only`/`--standalone-only` flags to halve request volume
+  when needed.
+
 - **`fetch_balance_sheet.py`**, **`fetch_cash_flow.py`**, **`fetch_ratios.py`**
   (2026-07-14): same architecture and shared point-in-time logic as
   `fetch_financial_results.py` (via `src/screener_common.py`), but their
@@ -175,9 +206,11 @@ python src/fetch_corporate_announcements.py
 # no args -- defaults to today only (nightly-run friendly)
 # --years 5 for a one-time historical backfill, or --from-date/--to-date for a custom range
 
-# Financial results (screener.in) -- quarterly + annual P&L, confirmed working
+# Financial results (screener.in) -- quarterly only, confirmed working
 python src/fetch_financial_results.py --symbols RELIANCE TCS
-# omit --symbols for the full Nifty 500 universe, --no-annual to skip pnlReport()
+# omit --symbols for the full Nifty 500 universe from index_membership
+# --consolidated-only / --standalone-only halves request volume if you hit rate limits
+# --sleep N to widen pacing further (default 2s between requests)
 # (quarterly cadence -- not in run_nightly.sh, same reasoning as shareholding_pattern)
 
 # Balance sheet / cash flow / ratios (screener.in) -- UNVERIFIED, see status note in each script
