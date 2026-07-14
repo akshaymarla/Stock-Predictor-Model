@@ -2,29 +2,14 @@
 Fetches cash flow statement data from screener.in via the vendored
 src/screenerScraper.py and loads it into `cash_flow`.
 
-STATUS: UNVERIFIED. No live capture of this endpoint exists yet.
-COLUMN_MAP below only covers the BASE summary table (cashFLow(withAddon=False))
--- same reasoning as fetch_balance_sheet.py: the addon endpoint tags
-(OperatingAct, FinancingAct, InvestingAct) only name the request URLs, not
-the actual returned fields, which are unconfirmed sub-line-item breakdowns.
-The base table's own row labels (Cash from Operating Activity, Cash from
-Investing Activity, Cash from Financing Activity, Net Cash Flow) are a much
-smaller, more defensible guess.
-
-Expect a fix-up round the same way fetch_financial_results.py needed one:
-  1. Run it.
-  2. If a symbol matches a disclosure date but stores mostly NULL metric
-     columns, run this diagnostic and send me the output:
-        python3 -c "
-        from screenerScraper import ScreenerScrape
-        sc = ScreenerScrape()
-        token = sc.getBSEToken('RELIANCE')
-        sc.loadScraper(token, consolidated=True)
-        raw = sc.cashFLow(withAddon=False)
-        p = list(raw.keys())[0]
-        for entry in raw[p]: print(entry)
-        "
-     I'll fix COLUMN_MAP to match.
+STATUS: CONFIRMED 2026-07-15 against a real live RELIANCE cash flow
+statement -- all 4 COLUMN_MAP labels matched the original guess exactly on
+the first try. COLUMN_MAP covers the BASE summary table only
+(cashFLow(withAddon=False)) -- same reasoning as fetch_balance_sheet.py:
+the addon endpoint tags (OperatingAct, FinancingAct, InvestingAct) only
+name request URLs, not the actual returned fields (unconfirmed sub-line-item
+breakdowns). Company-specific/unusual line items that don't fit COLUMN_MAP
+land in raw_metrics_json instead (see schema.sql).
 
 POINT-IN-TIME NOTE: same as fetch_financial_results.py -- screener.in has no
 disclosure timestamp, so disclosure_date is derived via
@@ -42,9 +27,10 @@ from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
-from screener_common import flatten_periods, find_disclosure, period_type, add_common_args, resolve_views
+from screener_common import (flatten_periods, find_disclosure, period_type,
+                              add_common_args, resolve_views, metrics_json)
 
-# UNVERIFIED -- see STATUS note above. Base summary table only.
+# Confirmed live 2026-07-15 -- see STATUS note above. Base summary table only.
 COLUMN_MAP = {
     "CashfromOperatingActivity": "cash_from_operating",
     "CashfromInvestingActivity": "cash_from_investing",
@@ -52,7 +38,7 @@ COLUMN_MAP = {
     "NetCashFlow": "net_cash_flow",
 }
 
-INSERT_COLUMNS = list(COLUMN_MAP.values())
+INSERT_COLUMNS = list(COLUMN_MAP.values()) + ["raw_metrics_json"]
 
 
 def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: str) -> list:
@@ -66,6 +52,7 @@ def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: s
             continue
 
         values = {col: metrics.get(label) for label, col in COLUMN_MAP.items()}
+        values["raw_metrics_json"] = metrics_json(metrics)
         rows.append((
             symbol, disclosure_date, period_end_date,
             period_type(period_end_date, annual=True), result_type,

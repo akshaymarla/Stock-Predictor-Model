@@ -67,7 +67,8 @@ from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
-from screener_common import flatten_periods, find_disclosure, period_type, add_common_args, resolve_views
+from screener_common import (flatten_periods, find_disclosure, period_type,
+                              add_common_args, resolve_views, metrics_json)
 
 # screener.in row-label (after screener_common's whitespace normalization) ->
 # our column name, as a list of aliases tried in order. Core fields confirmed
@@ -102,7 +103,7 @@ METRIC_ALIASES = {
 }
 # RawPDF isn't a numeric metric -- handled separately as raw_pdf_url below.
 
-INSERT_COLUMNS = list(METRIC_ALIASES.keys()) + ["raw_pdf_url"]
+INSERT_COLUMNS = list(METRIC_ALIASES.keys()) + ["raw_pdf_url", "raw_metrics_json"]
 
 ALL_KNOWN_ALIASES = {alias for aliases in METRIC_ALIASES.values() for alias in aliases} | {"RawPDF"}
 
@@ -127,6 +128,7 @@ def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: s
 
         values = {col: _lookup(metrics, aliases) for col, aliases in METRIC_ALIASES.items()}
         values["raw_pdf_url"] = metrics.get("RawPDF")
+        values["raw_metrics_json"] = metrics_json(metrics)
 
         if values["sales"] is None:
             unmapped = set(metrics.keys()) - ALL_KNOWN_ALIASES

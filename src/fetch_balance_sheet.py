@@ -2,34 +2,18 @@
 Fetches balance sheet data from screener.in via the vendored
 src/screenerScraper.py and loads it into `balance_sheet`.
 
-STATUS: UNVERIFIED. No live capture of this endpoint exists yet.
-COLUMN_MAP below only covers the BASE summary table (balanceSheet(withAddon=False))
--- deliberately not using withAddon=True here. Traced through
-screenerScraper.py's __addonData(): the addon endpoint dict keys (Borrowing,
-TotalAssets, OtherLiabilities, OtherAssets) are only used to build request
-URLs, not the actual field names in the response -- those come from each
-schedule's own JSON, which is a sub-line-item breakdown (e.g. "Fixed Assets"
-broken into individual asset categories) with genuinely unknown key names.
-Rather than guess at that too, we stick to the base table's own summary row
-labels, which are far more likely to be stable/guessable: Equity Capital,
-Reserves, Borrowings, Other Liabilities, Total Liabilities, Fixed Assets,
-CWIP, Investments, Other Assets, Total Assets.
-
-Expect a fix-up round the same way fetch_financial_results.py needed one:
-  1. Run it.
-  2. If a symbol matches a disclosure date but stores mostly NULL metric
-     columns, run this diagnostic and send me the output:
-        python3 -c "
-        from screenerScraper import ScreenerScrape
-        sc = ScreenerScrape()
-        token = sc.getBSEToken('RELIANCE')
-        sc.loadScraper(token, consolidated=True)
-        raw = sc.balanceSheet(withAddon=False)
-        p = list(raw.keys())[0]
-        for entry in raw[p]: print(entry)
-        "
-     I'll fix COLUMN_MAP to match -- and revisit whether the addon
-     sub-breakdown is worth chasing once we see what it actually contains.
+STATUS: CONFIRMED 2026-07-15 against a real live RELIANCE balance sheet --
+all 10 COLUMN_MAP labels matched the original guess exactly on the first
+try. COLUMN_MAP covers the BASE summary table only
+(balanceSheet(withAddon=False)) -- deliberately not using withAddon=True.
+Traced through screenerScraper.py's __addonData(): the addon endpoint dict
+keys (Borrowing, TotalAssets, OtherLiabilities, OtherAssets) are only used
+to build request URLs, not the actual field names in the response -- those
+come from each schedule's own JSON, a sub-line-item breakdown (e.g. "Fixed
+Assets" broken into individual asset categories) with still-unknown key
+names. Not chased for now since the base table already covers the useful
+summary figures; company-specific/unusual line items that don't fit
+COLUMN_MAP land in raw_metrics_json instead (see schema.sql).
 
 POINT-IN-TIME NOTE: same as fetch_financial_results.py -- screener.in has no
 disclosure timestamp, so disclosure_date is derived via
@@ -47,9 +31,10 @@ from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
-from screener_common import flatten_periods, find_disclosure, period_type, add_common_args, resolve_views
+from screener_common import (flatten_periods, find_disclosure, period_type,
+                              add_common_args, resolve_views, metrics_json)
 
-# UNVERIFIED -- see STATUS note above. Base summary table only.
+# Confirmed live 2026-07-15 -- see STATUS note above. Base summary table only.
 COLUMN_MAP = {
     "EquityCapital": "equity_capital",
     "Reserves": "reserves",
@@ -63,7 +48,7 @@ COLUMN_MAP = {
     "TotalAssets": "total_assets",
 }
 
-INSERT_COLUMNS = list(COLUMN_MAP.values())
+INSERT_COLUMNS = list(COLUMN_MAP.values()) + ["raw_metrics_json"]
 
 
 def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: str) -> list:
@@ -77,6 +62,7 @@ def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: s
             continue
 
         values = {col: metrics.get(label) for label, col in COLUMN_MAP.items()}
+        values["raw_metrics_json"] = metrics_json(metrics)
         rows.append((
             symbol, disclosure_date, period_end_date,
             period_type(period_end_date, annual=True), result_type,

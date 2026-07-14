@@ -2,25 +2,12 @@
 Fetches key ratios (debtor days, ROCE%, etc.) from screener.in via the
 vendored src/screenerScraper.py and loads them into `ratios`.
 
-STATUS: UNVERIFIED, and the least confident of the four screener.in-sourced
-scripts. ratios() has no addon endpoint at all to hint at field names from
-(unlike quarterlyReport/balanceSheet/cashFLow) -- COLUMN_MAP below is a
-rough guess at screener.in's commonly-shown ratio set (Debtor Days,
-Inventory Days, Days Payable, Cash Conversion Cycle, Working Capital Days,
-ROCE %). Treat this as a placeholder until a live capture confirms it:
-  1. Run it.
-  2. If it matches a disclosure date but stores all-NULL metric columns,
-     run this diagnostic and send me the output:
-        python3 -c "
-        from screenerScraper import ScreenerScrape
-        sc = ScreenerScrape()
-        token = sc.getBSEToken('RELIANCE')
-        sc.loadScraper(token, consolidated=True)
-        raw = sc.ratios()
-        p = list(raw.keys())[0]
-        for entry in raw[p]: print(entry)
-        "
-     I'll fix COLUMN_MAP to match.
+STATUS: CONFIRMED 2026-07-15 against a real live RELIANCE ratios pull --
+all 6 COLUMN_MAP labels matched the original guess exactly on the first
+try, despite ratios() having no addon endpoint to hint at field names from
+beforehand (unlike quarterlyReport/balanceSheet/cashFLow). Company-specific
+ratios that don't fit COLUMN_MAP land in raw_metrics_json instead (see
+schema.sql).
 
 POINT-IN-TIME NOTE: same as fetch_financial_results.py -- screener.in has no
 disclosure timestamp, so disclosure_date is derived via
@@ -38,9 +25,10 @@ from datetime import datetime
 
 from db import get_conn, get_universe
 from screenerScraper import ScreenerScrape
-from screener_common import flatten_periods, find_disclosure, period_type, add_common_args, resolve_views
+from screener_common import (flatten_periods, find_disclosure, period_type,
+                              add_common_args, resolve_views, metrics_json)
 
-# UNVERIFIED, low confidence -- see STATUS note above.
+# Confirmed live 2026-07-15 -- see STATUS note above.
 COLUMN_MAP = {
     "DebtorDays": "debtor_days",
     "InventoryDays": "inventory_days",
@@ -50,7 +38,7 @@ COLUMN_MAP = {
     "ROCE%": "roce_pct",
 }
 
-INSERT_COLUMNS = list(COLUMN_MAP.values())
+INSERT_COLUMNS = list(COLUMN_MAP.values()) + ["raw_metrics_json"]
 
 
 def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: str) -> list:
@@ -64,6 +52,7 @@ def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: s
             continue
 
         values = {col: metrics.get(label) for label, col in COLUMN_MAP.items()}
+        values["raw_metrics_json"] = metrics_json(metrics)
         rows.append((
             symbol, disclosure_date, period_end_date,
             period_type(period_end_date, annual=True), result_type,

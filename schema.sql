@@ -98,6 +98,18 @@ CREATE INDEX IF NOT EXISTS idx_corp_announcements_date ON corporate_announcement
 -- come along "for free" whenever quarterlyReport(withAddon=True) is called
 -- and are kept since they're useful modeling features, not because they were
 -- specifically requested field-by-field.
+--
+-- raw_metrics_json (2026-07-15): different company types (bank vs
+-- manufacturer vs NBFC) use genuinely different screener.in line items, not
+-- just different labels for the same concept (that's what METRIC_ALIASES in
+-- fetch_financial_results.py handles) -- a bank has no CWIP/Investments in
+-- the manufacturing sense, but has things like Interest Earned/Expended
+-- instead. Rather than an ever-growing column list or a lossy fixed schema,
+-- this column stores the FULL flattened per-period metrics dict as JSON, so
+-- nothing is ever silently dropped regardless of company template. The
+-- named columns above remain the convenient, clean path for metrics common
+-- across companies; company-specific fields live in this JSON blob until/
+-- unless they're common enough to promote to a real column.
 CREATE TABLE IF NOT EXISTS financial_results (
     symbol                  TEXT NOT NULL,
     disclosure_date         TEXT NOT NULL,   -- derived from corporate_announcements -- join key
@@ -128,6 +140,7 @@ CREATE TABLE IF NOT EXISTS financial_results (
     profit_for_pe           REAL,
     profit_for_eps          REAL,
     yoy_profit_growth_pct   REAL,
+    raw_metrics_json        TEXT,            -- full flattened metrics dict for this period, see note above
     disclosure_seq_id       TEXT,            -- corporate_announcements.seq_id used to derive disclosure_date
     source                  TEXT NOT NULL,   -- 'SCREENER'
     fetched_at              TEXT NOT NULL,
@@ -138,12 +151,11 @@ CREATE INDEX IF NOT EXISTS idx_financial_results_symbol ON financial_results(sym
 CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_results(disclosure_date);
 
 -- Same point-in-time reasoning and disclosure-matching as financial_results
--- above -- see screener_common.find_disclosure(). UNVERIFIED: unlike
--- financial_results, these column names are a best guess based on
--- screenerScraper.py's addon endpoint labels (Borrowing, TotalAssets/Fixed
--- Assets, OtherLiabilities, OtherAssets) and screener.in's commonly-known
--- balance sheet layout -- NOT yet confirmed against a live scrape. Expect a
--- fix-up round the same way financial_results needed one.
+-- above -- see screener_common.find_disclosure(). Column names confirmed
+-- 2026-07-15 against a real live RELIANCE balance sheet -- all 10 matched
+-- the original guess exactly. raw_metrics_json: same reasoning as
+-- financial_results above -- catches any company-specific line item (e.g.
+-- a bank's Deposits/Advances) that doesn't fit these common columns.
 CREATE TABLE IF NOT EXISTS balance_sheet (
     symbol             TEXT NOT NULL,
     disclosure_date    TEXT NOT NULL,   -- derived from corporate_announcements -- join key
@@ -160,6 +172,7 @@ CREATE TABLE IF NOT EXISTS balance_sheet (
     investments        REAL,
     other_assets       REAL,
     total_assets       REAL,
+    raw_metrics_json   TEXT,
     disclosure_seq_id  TEXT,
     source             TEXT NOT NULL,
     fetched_at         TEXT NOT NULL,
@@ -169,9 +182,10 @@ CREATE TABLE IF NOT EXISTS balance_sheet (
 CREATE INDEX IF NOT EXISTS idx_balance_sheet_symbol ON balance_sheet(symbol);
 CREATE INDEX IF NOT EXISTS idx_balance_sheet_disclosure_date ON balance_sheet(disclosure_date);
 
--- Same point-in-time reasoning as financial_results. UNVERIFIED: column
--- names are a best guess based on screenerScraper.py's addon endpoint labels
--- (OperatingAct, FinancingAct, InvestingAct) -- NOT yet confirmed live.
+-- Same point-in-time reasoning as financial_results. Column names confirmed
+-- 2026-07-15 against a real live RELIANCE cash flow statement -- all 4
+-- matched the original guess exactly. raw_metrics_json: same reasoning as
+-- financial_results above.
 CREATE TABLE IF NOT EXISTS cash_flow (
     symbol               TEXT NOT NULL,
     disclosure_date      TEXT NOT NULL,   -- derived from corporate_announcements -- join key
@@ -182,6 +196,7 @@ CREATE TABLE IF NOT EXISTS cash_flow (
     cash_from_investing  REAL,
     cash_from_financing  REAL,
     net_cash_flow        REAL,
+    raw_metrics_json     TEXT,
     disclosure_seq_id    TEXT,
     source                TEXT NOT NULL,
     fetched_at            TEXT NOT NULL,
@@ -191,11 +206,11 @@ CREATE TABLE IF NOT EXISTS cash_flow (
 CREATE INDEX IF NOT EXISTS idx_cash_flow_symbol ON cash_flow(symbol);
 CREATE INDEX IF NOT EXISTS idx_cash_flow_disclosure_date ON cash_flow(disclosure_date);
 
--- Same point-in-time reasoning as financial_results. UNVERIFIED, and the
--- least confident of the four screener.in tables -- ratios() has no addon
--- fetch to hint at field names from, so the columns below are a rough guess
--- at screener.in's commonly-shown ratio set. Expect this one to need the
--- most fixing after a live dry run; consider it a placeholder until then.
+-- Same point-in-time reasoning as financial_results. Column names confirmed
+-- 2026-07-15 against a real live RELIANCE ratios pull -- all 6 matched the
+-- original guess exactly, despite ratios() having no addon fetch to hint
+-- at field names from beforehand. raw_metrics_json: same reasoning as
+-- financial_results above.
 CREATE TABLE IF NOT EXISTS ratios (
     symbol                   TEXT NOT NULL,
     disclosure_date          TEXT NOT NULL,   -- derived from corporate_announcements -- join key
@@ -208,6 +223,7 @@ CREATE TABLE IF NOT EXISTS ratios (
     cash_conversion_cycle    REAL,
     working_capital_days     REAL,
     roce_pct                 REAL,
+    raw_metrics_json         TEXT,
     disclosure_seq_id        TEXT,
     source                   TEXT NOT NULL,
     fetched_at                TEXT NOT NULL,

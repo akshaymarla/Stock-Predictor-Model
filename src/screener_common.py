@@ -6,9 +6,20 @@ script that uses it, and a copy-pasted slip in just one file could reintroduce t
 "default to today() on no match" bug this project explicitly guards against -- see
 the note at the top of fetch_financial_results.py for the full story.
 """
+import json
 from datetime import datetime, timedelta
 
 DISCLOSURE_WINDOW_DAYS = 65  # SEBI: 45 days (Q1-Q3) / 60 days (Q4, annual) + buffer
+
+
+def metrics_json(metrics: dict) -> str:
+    """Serialize a period's full flattened metrics dict for the
+    raw_metrics_json catch-all column (see the note in schema.sql). Every
+    screener.in-sourced table has one -- different company types (bank vs
+    manufacturer vs NBFC) use genuinely different line items, not just
+    different labels for the same concept, so nothing should be silently
+    dropped just because it doesn't fit today's named columns."""
+    return json.dumps(metrics, default=str)
 
 
 def flatten_periods(raw: dict, skip_ttm: bool = True) -> dict:

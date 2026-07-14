@@ -13,9 +13,9 @@ progress — check the bottom of this file for the latest status.
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
 | `financial_results` | `src/fetch_financial_results.py` | Working (screener.in via vendored `src/screenerScraper.py`) — quarterly only; core + addon metric field names confirmed live, alias-based mapping for company-template variance (e.g. Sales vs Revenue) |
-| `balance_sheet` | `src/fetch_balance_sheet.py` | Built, **unverified** — column names are a best guess, needs a live DevTools-style capture |
-| `cash_flow` | `src/fetch_cash_flow.py` | Built, **unverified** — column names are a best guess, needs a live capture |
-| `ratios` | `src/fetch_ratios.py` | Built, **unverified, lowest confidence** — no addon endpoint to anchor guesses against |
+| `balance_sheet` | `src/fetch_balance_sheet.py` | Working — all 10 column names confirmed against a real live RELIANCE balance sheet, exact match on the first guess |
+| `cash_flow` | `src/fetch_cash_flow.py` | Working — all 4 column names confirmed against a real live RELIANCE cash flow statement, exact match on the first guess |
+| `ratios` | `src/fetch_ratios.py` | Working — all 6 column names confirmed against a real live RELIANCE ratios pull, exact match on the first guess despite no addon endpoint to anchor the guess against |
 | `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Working (confirmed end-to-end against live NSE data; dynamic universe, quarterly cadence so not in nightly by default) |
 
 ## Setup
@@ -254,6 +254,35 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-15**: Confirmed `cash_flow` (all 4 columns) and `ratios` (all 6
+  columns) live against real RELIANCE data — both matched their original
+  guesses exactly on the first try, same as `balance_sheet` earlier today.
+  All four screener.in-sourced tables are now confirmed working with real
+  data, none needed a `COLUMN_MAP`/`METRIC_ALIASES` fix.
+
+  Added a `raw_metrics_json` column to all four tables (via new
+  `screener_common.metrics_json()`) to address a real gap: different
+  company types (bank vs manufacturer vs NBFC) use genuinely different line
+  items, not just different labels for the same concept — a bank has no
+  `CWIP`/`Investments` in the manufacturing sense, but has things like
+  Interest Earned/Expended instead. `METRIC_ALIASES` (in
+  `fetch_financial_results.py`) already handles "same concept, different
+  label" (e.g. Sales vs Revenue); `raw_metrics_json` handles "different
+  concept entirely" by storing the *complete* flattened per-period metrics
+  dict alongside the named columns, so nothing is ever silently dropped
+  regardless of company template — verified with a synthetic bank-shaped
+  quarter (`InterestEarned`/`InterestExpended`/`NetInterestIncome`, none of
+  which have named columns) landing intact in the JSON blob while `Revenue`
+  still correctly populated `sales` via the alias. Local DB migrated
+  non-destructively via `ALTER TABLE ADD COLUMN` across all four tables —
+  all existing rows (74 financial_results, 5 each of balance_sheet/
+  cash_flow/ratios) preserved.
+- **2026-07-15**: Confirmed `balance_sheet` live against a real RELIANCE
+  balance sheet — all 10 guessed column names (`EquityCapital`, `Reserves`,
+  `Borrowings`, `OtherLiabilities`, `TotalLiabilities`, `FixedAssets`,
+  `CWIP`, `Investments`, `OtherAssets`, `TotalAssets`) matched exactly, no
+  code changes needed (the `\xa0` variants some keys carried were already
+  handled by the shared normalization in `screener_common.flatten_periods()`).
 - **2026-07-14**: Confirmed `financial_results` live against a real
   RELIANCE quarter and fixed what it found: several base metric keys carry
   a trailing non-breaking space (`'Sales\xa0'` etc.) that the vendored
