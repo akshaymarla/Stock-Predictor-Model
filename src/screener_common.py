@@ -48,12 +48,43 @@ def flatten_periods(raw: dict, skip_ttm: bool = True) -> dict:
 
 
 def find_disclosure(conn, symbol: str, period_end_date: str):
-    """Find the earliest 'financial result' announcement for this symbol within
+    """Find the earliest results-disclosure announcement for this symbol within
     DISCLOSURE_WINDOW_DAYS of period_end_date, by joining against our own
     confirmed-live corporate_announcements table. screener.in carries NO
     disclosure/announcement timestamp anywhere in its data -- this is the only
     source of truth for "when did the market actually learn this" used across
     every screener.in-sourced table.
+
+    DEVIATION FROM THE ORIGINAL FILTER (2026-07-15): NSE does not consistently
+    title the actual results disclosure "Financial Results". Confirmed two
+    distinct real filing patterns, apparently varying by company/filing agent
+    template, neither of which the original `subject LIKE '%financial result%'`
+    filter caught well:
+      1. Generic "Outcome of Board Meeting" subject (also used for dividend/
+         buyback/other board decisions), with the substance ("...approved the
+         Audited Financial Results for the quarter...") only in `details`.
+         Requiring a details mention of financial results/statements here is
+         deliberately conservative -- ~65% of "Outcome of Board Meeting" rows
+         are generic boilerplate ("...has informed the Exchange regarding
+         Outcome of Board Meeting held on...", no further text) and are left
+         unmatched rather than guessed, since that boilerplate could equally
+         be a dividend-only meeting.
+      2. Subject filed directly as "Financial Result(s) Updates", with
+         self-describing `details` ("X Limited has submitted to the Exchange,
+         the financial results for the period ended ..."). Confirmed live for
+         360ONE, which has ZERO "Outcome of Board Meeting" rows at all -- it
+         files exclusively under this second pattern. No details-text filter
+         needed here since the subject itself is unambiguous.
+    An earlier version of this fix only handled pattern 1 and was caught
+    before being run broadly: it would have silently regressed coverage for
+    every company using pattern 2, since a real live run showed 360ONE's
+    2023-03-01 quarter had NO "Outcome of Board Meeting" row in its window at
+    all (its actual disclosure, "Financial Result Updates" on 2023-05-04,
+    would have gone unmatched). The original `%financial result%` filter
+    matched almost nothing useful either way -- confirmed live: for RELIANCE
+    it matched only 82 of 1,658 announcements, and those 82 were mostly
+    *clarifications about* results (e.g. "Reply to Clarification- Financial
+    results"), not the disclosure itself.
 
     Returns (disclosure_date, seq_id), or (None, None) if nothing matches --
     callers MUST skip the row in that case, never fall back to any default date.
@@ -66,7 +97,11 @@ def find_disclosure(conn, symbol: str, period_end_date: str):
         WHERE symbol = ?
           AND announcement_date >= ?
           AND announcement_date <= ?
-          AND (subject LIKE '%financial result%' OR details LIKE '%financial result%')
+          AND (
+            (subject LIKE 'Outcome of Board Meeting%'
+             AND (details LIKE '%financial result%' OR details LIKE '%financial statement%'))
+            OR subject IN ('Financial Result Updates', 'Financial Results Updates')
+          )
         ORDER BY announcement_date ASC
         LIMIT 1
         """,

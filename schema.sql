@@ -79,8 +79,16 @@ CREATE INDEX IF NOT EXISTS idx_corp_announcements_date ON corporate_announcement
 -- (SEBI mandates disclosure within 45-60 days of quarter-end, so this window
 -- is a real regulatory bound, not a guess). disclosure_seq_id records which
 -- corporate_announcements row was matched, for audit. If no announcement is
--- found in that window, the row is skipped entirely at fetch time rather
--- than defaulting to today's date -- see screener_common.find_disclosure().
+-- found in that window, disclosure_date/disclosure_seq_id are stored as NULL
+-- rather than defaulting to today's date -- see screener_common.find_disclosure().
+-- The row is still captured (metrics aren't lost), but a NULL disclosure_date
+-- is deliberately unusable as a point-in-time join key: any "what did we know
+-- as of date D" query filters disclosure_date <= D, and SQL's NULL comparison
+-- semantics exclude these rows automatically -- no special-casing needed to
+-- keep them out of point-in-time-sensitive features. (2026-07-15: previously
+-- these rows were dropped entirely via `continue` in build_rows() -- changed
+-- because that silently threw away real financial data just because the
+-- disclosure date couldn't be confirmed yet.)
 -- period_end_date is descriptive only, never a join key: results for a
 -- quarter ending months ago can be disclosed today, and joining on
 -- period_end_date would leak that lag into a backtest. Note: period_end_date
@@ -112,7 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_corp_announcements_date ON corporate_announcement
 -- unless they're common enough to promote to a real column.
 CREATE TABLE IF NOT EXISTS financial_results (
     symbol                  TEXT NOT NULL,
-    disclosure_date         TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    disclosure_date         TEXT,            -- derived from corporate_announcements -- join key; NULL if unconfirmed, see note above
     period_end_date         TEXT NOT NULL,   -- quarter/year-ending month from screener.in -- NOT a join key
     period_type             TEXT,            -- 'Q1'/'Q2'/'Q3'/'Q4' (quarterlyReport) or 'ANNUAL' (pnlReport)
     result_type             TEXT NOT NULL,   -- 'STANDALONE' or 'CONSOLIDATED'
@@ -156,9 +164,12 @@ CREATE INDEX IF NOT EXISTS idx_financial_results_disclosure_date ON financial_re
 -- the original guess exactly. raw_metrics_json: same reasoning as
 -- financial_results above -- catches any company-specific line item (e.g.
 -- a bank's Deposits/Advances) that doesn't fit these common columns.
+-- disclosure_date is nullable -- same reasoning as financial_results: no
+-- match within the window means we capture the row anyway (metrics aren't
+-- lost) with disclosure_date=NULL rather than guessing.
 CREATE TABLE IF NOT EXISTS balance_sheet (
     symbol             TEXT NOT NULL,
-    disclosure_date    TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    disclosure_date    TEXT,            -- derived from corporate_announcements -- join key; NULL if unconfirmed
     period_end_date    TEXT NOT NULL,   -- NOT a join key
     period_type        TEXT,
     result_type        TEXT NOT NULL,
@@ -188,7 +199,7 @@ CREATE INDEX IF NOT EXISTS idx_balance_sheet_disclosure_date ON balance_sheet(di
 -- financial_results above.
 CREATE TABLE IF NOT EXISTS cash_flow (
     symbol               TEXT NOT NULL,
-    disclosure_date      TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    disclosure_date      TEXT,            -- derived from corporate_announcements -- join key; NULL if unconfirmed
     period_end_date      TEXT NOT NULL,   -- NOT a join key
     period_type          TEXT,
     result_type          TEXT NOT NULL,
@@ -213,7 +224,7 @@ CREATE INDEX IF NOT EXISTS idx_cash_flow_disclosure_date ON cash_flow(disclosure
 -- financial_results above.
 CREATE TABLE IF NOT EXISTS ratios (
     symbol                   TEXT NOT NULL,
-    disclosure_date          TEXT NOT NULL,   -- derived from corporate_announcements -- join key
+    disclosure_date          TEXT,            -- derived from corporate_announcements -- join key; NULL if unconfirmed
     period_end_date          TEXT NOT NULL,   -- NOT a join key
     period_type              TEXT,
     result_type              TEXT NOT NULL,

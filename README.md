@@ -12,10 +12,10 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
-| `financial_results` | `src/fetch_financial_results.py` | Working (screener.in via vendored `src/screenerScraper.py`) — quarterly only; core + addon metric field names confirmed live, alias-based mapping for company-template variance (e.g. Sales vs Revenue) |
-| `balance_sheet` | `src/fetch_balance_sheet.py` | Working — all 10 column names confirmed against a real live RELIANCE balance sheet, exact match on the first guess |
-| `cash_flow` | `src/fetch_cash_flow.py` | Working — all 4 column names confirmed against a real live RELIANCE cash flow statement, exact match on the first guess |
-| `ratios` | `src/fetch_ratios.py` | Working — all 6 column names confirmed against a real live RELIANCE ratios pull, exact match on the first guess despite no addon endpoint to anchor the guess against |
+| `financial_results` | `src/fetch_financial_results.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 12,039 rows) — quarterly only; alias-based mapping for company-template variance; disclosure_date confirmed for 48.6%, rest captured with disclosure_date=NULL (see below) |
+| `balance_sheet` | `src/fetch_balance_sheet.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 5,057 rows); disclosure_date confirmed for 30.7% (mostly annual-cadence reporting, see below) |
+| `cash_flow` | `src/fetch_cash_flow.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 5,024 rows); disclosure_date confirmed for 30.9% |
+| `ratios` | `src/fetch_ratios.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 4,982 rows); disclosure_date confirmed for 31.2% |
 | `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Working (confirmed end-to-end against live NSE data; dynamic universe, quarterly cadence so not in nightly by default) |
 
 ## Setup
@@ -253,6 +253,66 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-15**: Fixed a real disclosure-matching bug in
+  `screener_common.find_disclosure()` that was silently causing >99% of
+  `financial_results` periods from 2023-2026 (well inside our
+  `corporate_announcements` coverage) to be skipped. Root cause: NSE doesn't
+  consistently title the results disclosure "Financial Results" — confirmed
+  two real filing patterns via live data (subject `Outcome of Board
+  Meeting` with the substance only in `details`, and subject filed directly
+  as `Financial Result Updates`/`Financial Results Updates`), neither of
+  which the original `subject LIKE '%financial result%'` filter caught
+  well. `find_disclosure()` now matches both patterns.
+
+  Also changed the "no match" behavior across all four screener.in-sourced
+  tables (`financial_results`, `balance_sheet`, `cash_flow`, `ratios`):
+  previously the row was dropped entirely (`continue` in `build_rows()`),
+  losing the actual financial metrics whenever a disclosure date couldn't
+  be confirmed. Now the row is still captured with `disclosure_date = NULL`
+  (schema changed from `NOT NULL` to nullable on all four tables, migrated
+  non-destructively on the local DB using explicit named-column
+  `INSERT...SELECT`, verifying row counts matched before dropping the old
+  table). A NULL `disclosure_date` is unusable as a point-in-time join key
+  by construction — SQL's `NULL <= D` is never true, so any "what did we
+  know as of date D" query excludes these rows automatically with no
+  special-casing needed. This surfaces a real, common pattern instead of
+  hiding it: some companies (e.g. BBTC/Bombay Burmah Trading Corporation)
+  file quarterly results consistently *outside* the 65-day SEBI window,
+  every quarter — the conservative window correctly refuses to guess which
+  announcement is theirs, but now the metrics aren't lost either.
+
+  Ran all four scripts against the full Nifty 500 universe in batches of 50
+  symbols with a 3-minute cooldown between batches (mitigating a screener.in
+  connection-refused incident mid-run — see below). Final counts:
+  `financial_results` 12,039 rows/498 symbols (48.6% confirmed
+  disclosure_date), `balance_sheet` 5,057/498 (30.7%), `cash_flow`
+  5,024/496 (30.9%), `ratios` 4,982/496 (31.2%) — the lower match rate on
+  the latter three vs. `financial_results` reflects that screener.in mostly
+  reports balance sheet/cash flow/ratios on an annual cadence, so most
+  individual quarters genuinely have no same-quarter disclosure to match
+  against. Zero point-in-time window violations across all four tables
+  (verified: no `disclosure_date` before `period_end_date` or beyond the
+  65-day window).
+
+  Mid-run, screener.in started refusing all connections
+  (`Connection refused`, not a 429/empty-response) partway through a
+  continuous full-universe pull — plausibly an IP-level response to the
+  prior day's sustained load rather than downtime, though not conclusively
+  distinguishable from the outside. Recovered by switching to a mobile
+  hotspot (a personal secondary connection, not a proxy/VPN pool) and
+  batching requests (50 symbols, 3 min cooldown between batches) instead of
+  one continuous run — a more conservative load pattern generally, not just
+  a way around the block. No further failures across the full run. Looked
+  into scraping tickertape.in as a fallback source but declined — its
+  Terms & Conditions explicitly prohibit copying/reproducing/reverse-
+  engineering platform content, unlike screener.in where an established
+  open-source scraper already existed. Also evaluated `indianapi.in`'s paid
+  Indian Stock Market API as a longer-term, ToS-clean alternative (API-key
+  based, not scraped) — covers the right data categories but pricing/field
+  names/data quality unverified (docs are a JS-rendered SPA this session
+  couldn't inspect); worth a real trial-account capture before building
+  against it.
 
 - **2026-07-15**: Ran the first full historical seed across the entire
   Nifty 500 universe (`./run_historical_seed.sh`, ~9 hours end-to-end,

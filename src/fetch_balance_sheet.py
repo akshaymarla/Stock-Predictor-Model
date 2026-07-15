@@ -56,10 +56,10 @@ def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: s
     for period_end_date, metrics in periods.items():
         disclosure_date, seq_id = find_disclosure(conn, symbol, period_end_date)
         if not disclosure_date:
-            print(f"    SKIP {symbol} {period_end_date} ({result_type}): no matching "
-                  f"'financial result' announcement within the disclosure window.",
+            print(f"    NULL-DISCLOSURE {symbol} {period_end_date} ({result_type}): no "
+                  f"matching announcement within the disclosure window -- capturing the "
+                  f"row with disclosure_date=NULL instead of guessing a date.",
                   file=sys.stderr)
-            continue
 
         values = {col: metrics.get(label) for label, col in COLUMN_MAP.items()}
         values["raw_metrics_json"] = metrics_json(metrics)

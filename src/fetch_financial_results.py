@@ -120,11 +120,12 @@ def build_rows(conn, symbol: str, periods: dict, result_type: str, fetched_at: s
     for period_end_date, metrics in periods.items():
         disclosure_date, seq_id = find_disclosure(conn, symbol, period_end_date)
         if not disclosure_date:
-            print(f"    SKIP {symbol} {period_end_date} ({result_type}): no matching "
-                  f"'financial result' announcement in corporate_announcements within "
-                  f"the disclosure window -- not guessing a disclosure date.",
+            print(f"    NULL-DISCLOSURE {symbol} {period_end_date} ({result_type}): no "
+                  f"matching announcement in corporate_announcements within the "
+                  f"disclosure window -- capturing the row with disclosure_date=NULL "
+                  f"instead of guessing a date (point-in-time queries filtering "
+                  f"disclosure_date <= D exclude NULLs automatically).",
                   file=sys.stderr)
-            continue
 
         values = {col: _lookup(metrics, aliases) for col, aliases in METRIC_ALIASES.items()}
         values["raw_pdf_url"] = metrics.get("RawPDF")
