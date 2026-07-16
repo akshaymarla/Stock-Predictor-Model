@@ -259,6 +259,13 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-16**: Closed the open "does screener.in lag the NSE
+  disclosure" question from the nightly-trigger design (`RUNBOOK.md`
+  Stage 3) — screener.in typically updates same-day, so the nightly
+  trigger isn't racing stale data. No design change needed; the nightly
+  trigger + `run_periodic.sh` safety net already comfortably tolerate the
+  "up to a week" delay bar even in an edge case.
+
 - **2026-07-16**: Designed and built the nightly/periodic scheduling
   strategy (`RUNBOOK.md` Stages 2-3), ahead of actually scheduling cron --
   the job stays run-by-hand until the model itself is built. Added

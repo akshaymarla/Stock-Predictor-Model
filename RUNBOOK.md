@@ -98,14 +98,15 @@ live against real June 2026 quarter-end results:
    (~6 weeks after each quarter-end), monthly otherwise — not yet
    scheduled, same as everything else in this doc.
 
-Open question, not yet tested: does screener.in's own data reflect a
-company's results same-day as the NSE disclosure, or is there a lag? If
-there's a lag, the nightly trigger might fetch before screener.in has the
-new quarter, silently getting the same (stale) data back — harmless
-(idempotent), but would mean the new quarter shows up a day late via the
-next night's trigger re-running against the SAME announcement... actually
-it won't re-trigger, since it only scans *that day's* announcements. Worth
-verifying with a live company known to be mid-results-season.
+Resolved 2026-07-16 (per Akshay's own knowledge of screener.in's typical
+behavior, not an independently-verified live test): screener.in usually
+updates the same day a company announces results, so the nightly trigger
+isn't racing a stale-data window in the way originally worried about. Even
+if capture lags the actual announcement by up to about a week in some
+edge case, that's an accepted tolerance, not a problem to design around —
+the nightly trigger (worst case: next-day capture) plus the periodic
+safety-net sweep (`run_periodic.sh`) already comfortably sit inside that
+bound. No design change needed as a result of this.
 
 ### Stage 4 — Infrastructure, deferred
 
