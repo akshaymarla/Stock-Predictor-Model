@@ -277,3 +277,209 @@ CREATE TABLE IF NOT EXISTS shareholding_pattern (
 
 CREATE INDEX IF NOT EXISTS idx_shareholding_symbol ON shareholding_pattern(symbol);
 CREATE INDEX IF NOT EXISTS idx_shareholding_disclosure_date ON shareholding_pattern(disclosure_date);
+
+-- Market-wide risk/regime context, not stock-specific -- one row per
+-- trading day, joins to the training matrix on date alone. No
+-- point-in-time derivation needed here (unlike disclosure-based tables):
+-- an index close on date D is, by construction, known on date D.
+--
+-- SOURCING NOTE (2026-07-16): the original plan (macro_sector_shock_features.md
+-- Section 4a) was jugaad_data.nse.index_df() per-symbol against
+-- niftyindices.com's Backpage.aspx AJAX endpoint. Confirmed live that this
+-- endpoint no longer works -- niftyindices.com has been redesigned (now on
+-- Sitefinity CMS) and the endpoint returns the site's homepage HTML instead
+-- of JSON, for every symbol, regardless of session/cookies/headers. Not a
+-- symbol-name problem, not fixable from our side. Switched to
+-- jugaad_data.nse.NSEIndicesArchives.bhavcopy_index_raw(date) instead -- a
+-- static daily CSV snapshot at niftyindices.com/Daily_Snapshot/ind_close_all_DDMMYYYY.csv
+-- covering ALL ~161 NSE indices (confirmed live, including 'Nifty 50' and
+-- 'India VIX' by exact name) in one request per day, rather than one
+-- request per index per date range. Confirmed working back to at least
+-- 2021-01-04. Non-trading days (weekends/holidays) return HTTP 200 with
+-- the same homepage HTML rather than a clean 404 -- fetch_macro_sector.py
+-- must detect a real CSV header before trusting a response, not just check
+-- the status code.
+CREATE TABLE IF NOT EXISTS macro_regime_indicators (
+    date                    TEXT NOT NULL PRIMARY KEY,  -- YYYY-MM-DD
+    nifty50_close           REAL,
+    nifty50_return_5d       REAL,   -- 5-trading-day pct return
+    nifty50_return_10d      REAL,
+    nifty50_dist_50dma_pct  REAL,   -- % distance of close from 50-day moving average
+    india_vix_close         REAL,
+    vix_change_5d_pts       REAL,   -- ABSOLUTE point change over 5 trading days (not %)
+    vix_change_5d_pct       REAL,   -- percentage change over 5 trading days
+    source                  TEXT NOT NULL,   -- 'NSE_INDICES_ARCHIVE'
+    fetched_at              TEXT NOT NULL
+);
+
+-- THE FIX for sector-mapping: real official NSE Indices sectoral
+-- constituent lists, not fuzzy string-matching against index_membership's
+-- generic `industry` field (that field holds granular BSE/NSE
+-- classifications like "FERTILISERS & PESTICIDES", not broad sector names).
+-- Snapshot-based, same pattern as index_membership -- gives today's
+-- constituents each run, does NOT retroactively reconstruct historical
+-- sector membership. A stock can legitimately appear under multiple
+-- sector_name rows in the same snapshot (NSE's sectoral indices overlap,
+-- e.g. a large private bank is in both 'Nifty Bank' and
+-- 'Nifty Private Bank') -- this is intentional, not a bug; feature
+-- assembly must pick an explicit policy for handling that (prefer most
+-- specific index, or join all and average) rather than silently taking
+-- whichever row a query happens to return first.
+CREATE TABLE IF NOT EXISTS sector_membership (
+    symbol         TEXT NOT NULL,
+    sector_name    TEXT NOT NULL,   -- e.g. 'Nifty Bank' -- must match macro_regime_indicators/sector_daily_benchmarks naming exactly (real NSE index names, confirmed 2026-07-16, NOT all-caps)
+    company_name   TEXT,
+    isin           TEXT,
+    snapshot_date  TEXT NOT NULL,
+    source         TEXT NOT NULL,   -- 'NSE_INDICES'
+    fetched_at     TEXT NOT NULL,
+    PRIMARY KEY (symbol, sector_name, snapshot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_sector_membership_snapshot ON sector_membership(snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_sector_membership_symbol ON sector_membership(symbol);
+
+-- One row per (sector, day). Sourced from the SAME daily index snapshot
+-- as macro_regime_indicators (see fetch_macro_sector.py's sourcing note)
+-- -- every sector index's close is already in that one file, so this adds
+-- zero extra HTTP requests, just more parsed rows per day. sector_name
+-- matches sector_membership.sector_name exactly (real NSE index names,
+-- e.g. 'Nifty Bank'). No point-in-time derivation needed here either --
+-- same reasoning as macro_regime_indicators.
+CREATE TABLE IF NOT EXISTS sector_daily_benchmarks (
+    sector_name               TEXT NOT NULL,
+    date                      TEXT NOT NULL,
+    sector_close              REAL,
+    sector_return_3d          REAL,
+    sector_return_5d          REAL,
+    sector_return_14d         REAL,
+    sector_relative_alpha_14d REAL,  -- sector_return_14d minus nifty50's 14d return over the identical window
+    source                    TEXT NOT NULL,   -- 'NSE_INDICES_ARCHIVE'
+    fetched_at                TEXT NOT NULL,
+    PRIMARY KEY (sector_name, date)
+);
+CREATE INDEX IF NOT EXISTS idx_sector_benchmarks_date ON sector_daily_benchmarks(date);
+
+-- TRAINING LABELS ONLY -- this table intentionally uses FUTURE data
+-- relative to `date` (forward-looking returns), the opposite of every
+-- other table in this repo. NEVER join this into the feature side of a
+-- training matrix -- it's the label side only. Kept in its own clearly-
+-- named table specifically so there's no risk of it accidentally ending
+-- up on the feature side. See macro_sector_shock_features.md Section 6.
+--
+-- Forward windows are in TRADING days (via macro_regime_indicators.date
+-- as the market calendar), not calendar days. Rows near the end of
+-- available price history that don't have a full 14d/30d forward window
+-- yet are simply absent from this table -- computed on a truncated
+-- window would silently understate or overstate real alpha, so
+-- compute_target_labels.py excludes them rather than computing a biased
+-- partial value. alpha_Nd = stock_return_Nd - nifty_return_Nd, matching
+-- the project's original label definition (absolute outperformance, no
+-- cost/tax adjustment).
+CREATE TABLE IF NOT EXISTS model_target_labels (
+    symbol               TEXT NOT NULL,
+    date                 TEXT NOT NULL,   -- the "as of" date the label is computed FROM
+    stock_return_14d     REAL,
+    nifty_return_14d     REAL,   -- NIFTY 50's return over the identical window
+    alpha_14d            REAL,
+    outperform_14d_flag  INTEGER,   -- 1 if alpha_14d > 0 else 0
+    stock_return_30d     REAL,
+    nifty_return_30d     REAL,
+    alpha_30d            REAL,
+    outperform_30d_flag  INTEGER,
+    fetched_at           TEXT NOT NULL,
+    PRIMARY KEY (symbol, date)
+);
+CREATE INDEX IF NOT EXISTS idx_model_target_labels_date ON model_target_labels(date);
+
+-- FEATURES ONLY -- deliberately does NOT include any column from
+-- model_target_labels. Keeping labels in their own separate table (joined
+-- in later, at training time, by whoever trains the model) means there's
+-- no risk of future-looking data accidentally ending up on the feature
+-- side of a join. See macro_sector_shock_features.md Section 6.
+--
+-- Built by src/assemble_feature_matrix.py, which fixes 3 real bugs found
+-- in an earlier draft (macro_sector_shock_features.md Section 5):
+--   1. Sector membership is joined via "most recent snapshot_date <= date"
+--      (sector_membership snapshots are sparse -- an exact-date join would
+--      null out sector features for the vast majority of rows).
+--   2. "Last known financials as of date" uses a proper ranking (most
+--      recent disclosure_date <= date), not a bare-column MAX() -- a bare
+--      MAX() only happens to work in SQLite specifically and silently
+--      breaks on Postgres, this project's planned future migration target.
+--   3. Announcement-derived features check BOTH `subject` AND `details`
+--      (learned building financial_results' disclosure-matching: NSE often
+--      files substantive news under a generic subject like "Outcome of
+--      Board Meeting", with the real content only in `details`).
+--
+-- Fundamentals/shareholding features only use rows with disclosure_date
+-- IS NOT NULL (financial_results/balance_sheet/cash_flow/ratios/
+-- shareholding_pattern can have NULL disclosure_date for periods where no
+-- matching announcement was found -- those are correctly unusable as a
+-- point-in-time join key, see the note on financial_results above).
+--
+-- sector_* columns are AVERAGED across every sector_name a symbol belongs
+-- to as of `date` (NSE's sectoral indices legitimately overlap, e.g. a
+-- large private bank is in both 'Nifty Bank' and 'Nifty Private Bank') --
+-- an explicit, documented policy per the schema note on sector_membership,
+-- not an arbitrary pick of whichever row a query happens to return first.
+--
+-- KNOWN LIMITATION, confirmed 2026-07-16: sector_membership is
+-- snapshot-based, same as index_membership -- it does NOT retroactively
+-- reconstruct historical sector membership. Since the only snapshot taken
+-- so far is from today, sector_count/avg_sector_* are correctly NULL/0 for
+-- every historical row in the 5-year backfill (verified: 100% of an
+-- initial 3,076-row test batch). This is accepted for now, same stance
+-- already taken on index_membership's identical limitation -- these
+-- columns will start populating naturally for real going forward as more
+-- snapshots accumulate from running fetch_sector_membership.py
+-- periodically. Historical reconstruction (if NSE Indices publishes past
+-- sector reconstitution data) is a separate, not-yet-started task.
+CREATE TABLE IF NOT EXISTS model_feature_matrix (
+    symbol                        TEXT NOT NULL,
+    date                          TEXT NOT NULL,
+    -- price/liquidity
+    close                         REAL,
+    volume                        REAL,
+    avg_traded_value_20d          REAL,
+    -- macro regime (same-day values -- known on `date` by construction)
+    nifty50_close                 REAL,
+    nifty50_return_5d             REAL,
+    nifty50_return_10d            REAL,
+    nifty50_dist_50dma_pct        REAL,
+    india_vix_close               REAL,
+    vix_change_5d_pts             REAL,
+    vix_change_5d_pct             REAL,
+    -- sector context (averaged across all sector_membership rows as-of `date`)
+    sector_count                  INTEGER,   -- how many sectors this symbol belongs to as of `date`
+    avg_sector_return_3d          REAL,
+    avg_sector_return_5d          REAL,
+    avg_sector_return_14d         REAL,
+    avg_sector_relative_alpha_14d REAL,
+    -- last-known fundamentals as of `date` (point-in-time via disclosure_date)
+    fin_disclosure_date           TEXT,   -- audit column: which disclosure this snapshot came from
+    fin_result_type               TEXT,   -- 'CONSOLIDATED' or 'STANDALONE', whichever was most recent
+    fin_days_since_disclosure     INTEGER,
+    fin_sales                     REAL,
+    fin_net_profit                REAL,
+    fin_opm_pct                   REAL,
+    fin_eps                       REAL,
+    bs_disclosure_date            TEXT,
+    bs_total_assets                REAL,
+    bs_borrowings                  REAL,
+    cf_disclosure_date            TEXT,
+    cf_net_cash_flow               REAL,
+    ratio_disclosure_date         TEXT,
+    ratio_roce_pct                 REAL,
+    -- last-known shareholding as of `date`
+    sh_disclosure_date            TEXT,
+    sh_promoter_pct               REAL,
+    sh_public_pct                 REAL,
+    -- announcement-derived signal (both subject AND details checked, see
+    -- note above) -- crude keyword flag for regulatory/legal/order-related
+    -- news in the trailing 30 days as of `date`, not NLP -- a real
+    -- sentiment/topic model is a separate, lower-priority tier
+    recent_order_dispute_flag_30d INTEGER,
+    fetched_at                    TEXT NOT NULL,
+    PRIMARY KEY (symbol, date)
+);
+CREATE INDEX IF NOT EXISTS idx_feature_matrix_date ON model_feature_matrix(date);

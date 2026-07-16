@@ -8,7 +8,7 @@ progress — check the bottom of this file for the latest status.
 
 | Table | Script | Status |
 |---|---|---|
-| `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data) |
+| `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data). ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py` (NSE's `stock_history` API has a real gap NSE's own bhavcopy archive doesn't) -- see changelog; 2 rare dates remain unfilled by design |
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
@@ -17,6 +17,11 @@ progress — check the bottom of this file for the latest status.
 | `cash_flow` | `src/fetch_cash_flow.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 5,024 rows); disclosure_date confirmed for 30.9% |
 | `ratios` | `src/fetch_ratios.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 4,982 rows); disclosure_date confirmed for 31.2% |
 | `shareholding_pattern` | `src/fetch_shareholding_pattern.py` | Working (confirmed end-to-end against live NSE data; dynamic universe, quarterly cadence so not in nightly by default) |
+| `macro_regime_indicators` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- NIFTY 50/India VIX closes + rolling returns spot-checked against raw source data). First table of the macro/sector shock feature set (`macro_sector_shock_features.md`) -- see changelog for a real sourcing pivot away from the original design doc's plan |
+| `sector_membership` | `src/fetch_sector_membership.py` | Working (confirmed live 2026-07-16 -- all 15 sector constituent CSVs resolved, 249 rows, spot-checked against real symbols e.g. HDFCBANK correctly in Bank+Financial Services+Private Bank, RELIANCE in Energy+Infrastructure+Oil & Gas). Current-snapshot only, same caveat as `index_membership` |
+| `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
+| `model_target_labels` | `src/compute_target_labels.py` | Working (confirmed live 2026-07-16 -- 542,596 rows across 539 symbols after the daily_prices gap fix, up from 398,243 before it). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
+| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-16 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug |
 
 ## Setup
 
@@ -253,6 +258,162 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-16**: Added `model_feature_matrix` + `src/assemble_feature_matrix.py`
+  -- Step 5 (final step) of the macro/sector shock feature build. Features
+  only -- deliberately does NOT join in `model_target_labels`, so labels
+  stay in their own table and can't accidentally end up on the feature
+  side. Fixes all 3 bugs flagged in `macro_sector_shock_features.md`
+  Section 5: sector membership joined via "most recent snapshot_date <=
+  date" (not an exact-date match), last-known fundamentals via proper
+  per-symbol ranking (not a bare-column `MAX()`, which only happens to
+  work in SQLite and breaks on Postgres), and the announcement-derived
+  `recent_order_dispute_flag_30d` checks both `subject` AND `details`
+  (screener.in disclosure-matching already taught us NSE often files real
+  content under a generic subject with the substance only in `details`).
+  Multi-sector membership (a stock can legitimately be in >1 sectoral
+  index) is handled by averaging `sector_daily_benchmarks` across every
+  `sector_name` a symbol belongs to as of `date` -- an explicit policy,
+  documented in schema.sql, not an arbitrary first-row pick.
+
+  Ran against the full universe: 687,372 rows (matches `daily_prices`'
+  total row count exactly -- every price row got a feature row). Coverage:
+  80.1% macro (the ~20% gap traces to known daily_prices/macro_regime_indicators
+  calendar mismatches, not a new issue), 52.1% fundamentals (recently-listed
+  companies have less disclosure history, dragging down the average -- not
+  a bug), 95.4% shareholding, 101,267 rows with a real order/dispute
+  announcement flag. Zero rows with negative `fin_days_since_disclosure`
+  -- confirmed no look-ahead leakage in the fundamentals join.
+
+  **Real limitation found and accepted, not fixed**: `sector_count` is 0
+  for 100% of rows right now. `sector_membership` is snapshot-based, same
+  as `index_membership` -- it does NOT retroactively reconstruct historical
+  sector membership, and the only snapshot taken so far is from today
+  (2026-07-16), which is after every date currently in `daily_prices`.
+  Accepted for now, same stance already taken on `index_membership`'s
+  identical limitation -- `sector_count`/`avg_sector_*` will start
+  populating for real going forward as more snapshots accumulate from
+  running `fetch_sector_membership.py` periodically. Historical
+  reconstruction (if NSE Indices publishes past sector reconstitution
+  data) is a separate, not-yet-started task.
+
+- **2026-07-16**: Fixed a real, pre-existing gap in `daily_prices` --
+  ~300 trading days (out of ~1,250 in the 5-year history) had ZERO rows
+  for every one of the 539 tracked symbols, 79% of them Fridays, often in
+  consecutive-week chains. Discovered as a side effect of building
+  `compute_target_labels.py` (it correctly returned NULL labels around
+  these dates instead of guessing, which is what surfaced the gap).
+  Confirmed live this is a real limitation of `jugaad_data`'s
+  `stock_history` AJAX API (used by `fetch_daily_prices.py`) -- re-querying
+  that exact API live, today, for multiple symbols (RELIANCE, TCS) on
+  multiple known-missing dates still returns nothing; not fixable on our
+  end since it's NSE's own API behavior. Added `src/backfill_price_gaps.py`,
+  which routes around it via NSE's official bhavcopy settlement archive
+  (a different, authoritative NSE endpoint, confirmed live to have full
+  data for both a post- and pre- July 2024 UDiff-format-cutover date).
+  Filled 301 of 302 fully-missing days (134,046 new rows across 538
+  symbols), then recomputed `avg_traded_value_20d` across every affected
+  symbol's complete history (a rolling 20-day calc that a single isolated
+  inserted day can't compute correctly in isolation). Two rare dates
+  intentionally left unfilled, both isolated NSE archive quirks rather
+  than bugs: 2021-11-04 (Diwali Muhurat trading -- bhavcopy_raw() returns
+  content, but its own DATE1 field is the prior day, 2021-11-03; caught by
+  a date-match check added to `fetch_bhavcopy_rows()` rather than silently
+  writing rows under the wrong date) and 2022-08-08 (the pre-UDiff CSV
+  endpoint serves a raw ZIP file instead of plain text for this one date,
+  which `jugaad_data`'s fallback doesn't unzip). Only FULLY-missing days
+  were touched -- "partial coverage" days (some but not all symbols have a
+  row) were deliberately left alone, since those are frequently legitimate
+  (IPOs, delistings, individual halts) and need per-symbol judgment, not a
+  blanket backfill.
+
+- **2026-07-16**: Added `model_target_labels` + `src/compute_target_labels.py`
+  -- Step 4 of the macro/sector shock feature build. Forward-looking
+  training labels only (14d/30d stock return vs. NIFTY 50 return over the
+  identical window, using `macro_regime_indicators.date` as the trading
+  calendar so windows are in TRADING days, not calendar days) -- kept in
+  its own clearly-named table specifically so it can't accidentally end up
+  on the feature side of a training matrix. Rows near the end of available
+  price history without a full forward window are excluded, not computed
+  on a truncated window. This is the script that surfaced the
+  `daily_prices` gap fixed above -- see that entry for the full story.
+
+- **2026-07-16**: Added `sector_daily_benchmarks`, extending
+  `src/fetch_macro_sector.py` (Step 3 of the macro/sector shock feature
+  build). Reuses the exact same daily snapshot fetch as
+  `macro_regime_indicators` -- every sector index's close is already in
+  that one file, so this adds zero extra HTTP requests, just more parsed
+  rows per day. `sector_relative_alpha_14d` (sector's 14d return minus
+  NIFTY 50's 14d return over the identical window) computed at write time
+  per the design doc. Tested live for 2026-07-01 to 2026-07-14 (150 rows,
+  15 sectors x 10 trading days): every `sector_close` spot-checked exactly
+  against the raw source CSV, and `sector_relative_alpha_14d` confirmed
+  internally consistent across all 15 sectors for a given date (e.g.
+  `Nifty Realty` 14d return 13.97% vs the implied ~0.96% NIFTY 50 baseline
+  gives +13.01% alpha, and every other sector's alpha backs out to the
+  same ~0.96% baseline). `SECTOR_NAMES` is imported from
+  `fetch_sector_membership.SECTOR_CSV_FILES` as a single source of truth
+  so the two scripts' sector name lists can't silently drift apart.
+
+- **2026-07-16**: Added `sector_membership` + `src/fetch_sector_membership.py`
+  -- Step 2 of the macro/sector shock feature build, and the actual fix for
+  the sector-mapping bug flagged in `macro_sector_shock_features.md`: real
+  official NSE Indices per-sector constituent CSVs instead of fuzzy-matching
+  `index_membership`'s generic `industry` field. Confirmed all 15 target
+  sectors live rather than assuming the URL naming pattern by analogy --
+  13 followed the obvious `ind_nifty{sector}list.csv` pattern, but 2 didn't:
+  `Financial Services` is `ind_niftyfinancelist.csv` (not
+  `ind_niftyfinservicelist.csv`, which silently 200s with an HTML error page
+  instead of a clean 404 -- niftyindices.com doesn't 404 on bad paths), and
+  `Private Bank` is `ind_nifty_privatebanklist.csv` (note the underscore,
+  unlike every other sector). 249 total constituent rows across 15 sectors,
+  spot-checked against real symbols: `HDFCBANK` correctly lands in `Nifty
+  Bank` + `Nifty Financial Services` + `Nifty Private Bank` simultaneously
+  (the schema's multi-sector-membership design working as intended), `SBIN`
+  in `Nifty Bank` + `Nifty Financial Services` + `Nifty PSU Bank`,
+  `RELIANCE` in `Nifty Energy` + `Nifty Infrastructure` + `Nifty Oil & Gas`.
+  `sector_name` values match the real NSE index names used in
+  `fetch_macro_sector.py`'s daily snapshot exactly (e.g. `Nifty Bank`, not
+  `NIFTY BANK`), so this joins cleanly once `sector_daily_benchmarks` exists.
+  Same current-snapshot-only caveat as `index_membership` -- today's
+  constituents only, doesn't retroactively reconstruct historical membership.
+
+- **2026-07-16**: Added `macro_regime_indicators` + `src/fetch_macro_sector.py`
+  -- Step 1 of the macro/sector shock feature build (`macro_sector_shock_features.md`).
+  The design doc's planned approach (`jugaad_data.nse.index_df()` per-symbol
+  against niftyindices.com's `Backpage.aspx` AJAX endpoint) is confirmed
+  broken live: niftyindices.com has been redesigned onto a newer CMS
+  (Sitefinity) and that endpoint now returns the site's homepage HTML
+  instead of JSON, for every symbol, regardless of session/cookies/headers
+  -- not a symbol-string problem, not fixable from our side. Found and
+  switched to `jugaad_data.nse.NSEIndicesArchives.bhavcopy_index_raw(date)`
+  instead -- a static daily CSV snapshot
+  (`niftyindices.com/Daily_Snapshot/ind_close_all_DDMMYYYY.csv`) covering
+  ALL ~161 NSE indices (confirmed live, including `Nifty 50` and
+  `India VIX` by exact name -- note: NOT the all-caps `NIFTY 50`/`INDIA VIX`
+  the design doc assumed) in one request per day instead of one request per
+  index per date range, confirmed working back to at least 2021-01-04. Also
+  confirmed a real gotcha: non-trading days (weekends/holidays) return
+  HTTP 200 with the same homepage HTML as a broken request, not a clean
+  404 -- `_parse_snapshot()` detects a real CSV via the header row, never
+  trusts the status code alone. This also sets up the future
+  `sector_daily_benchmarks` companion table cheaply, since the same daily
+  file already contains every sector index's close too.
+
+  Tested live for 2026-07-01 to 2026-07-14 (10 real trading days, both
+  weekends correctly excluded) -- `nifty50_close`/`india_vix_close` values
+  spot-checked exactly against the raw source CSV. Rolling features
+  (`nifty50_return_5d/10d`, `nifty50_dist_50dma_pct`,
+  `vix_change_5d_pts/pct`) computed over TRADING days (not calendar days),
+  seeded with a 90-day fetch buffer before the requested range so the
+  first requested row isn't NULL for lack of lookback history.
+
+  Next steps per the design doc's build order: `fetch_sector_membership.py`
+  (real NSE Indices per-sector constituent CSVs -- the actual fix for
+  mapping symbols to sectors, not fuzzy-matching the generic `industry`
+  field), then extending this script's same daily-snapshot mechanism to
+  populate `sector_daily_benchmarks`, then `compute_target_labels.py`, then
+  `assemble_feature_matrix.py`. Not yet built.
 
 - **2026-07-15**: Fixed a real disclosure-matching bug in
   `screener_common.find_disclosure()` that was silently causing >99% of
