@@ -61,17 +61,51 @@ historical price data isn't reliably live that early (see `fetch_daily_prices.py
 known-gotcha note) — needs one more live test to find a time that
 consistently works, or a retry-with-backoff wrapper.
 
-### Stage 3 — Periodic automation (quarterly-cadence data) — not built yet
+### Stage 3 — Periodic automation (quarterly-cadence data) — built 2026-07-16
 
-`financial_results`, `balance_sheet`, `cash_flow`, `ratios`,
-`shareholding_pattern` change ~4x/year, but different companies report on
-different days spread across a ~6-week results season each quarter — a
-literal once-a-quarter run would miss most companies. A weekly or monthly
-sweep across the full universe is more realistic; the idempotent upsert
-makes re-running against companies with nothing new cheap (it just
-re-confirms). No wrapper script exists for this yet (would look like
-`run_periodic.sh`, mirroring `run_nightly.sh`'s structure) — flagged as a
-gap, not built.
+`financial_results`, `balance_sheet`, `cash_flow`, `ratios` change ~4x/year,
+but different companies report on different days spread across a ~6-week
+results season each quarter. Two-part design, both pieces built and tested
+live against real June 2026 quarter-end results:
+
+1. **Reactive, nightly** (`src/trigger_quarterly_refetch.py`, wired into
+   `run_nightly.sh`): each night, scans that day's `corporate_announcements`
+   for a results-disclosure using the same two patterns
+   `screener_common.find_disclosure()` already validated (`Outcome of
+   Board Meeting` + details mentions results, or `Financial Result(s)
+   Updates` directly), and re-fetches just the matched symbols across all
+   4 tables. Considered using the earlier "Board Meeting Intimation"
+   (advance notice, ~1-3 week lead time) instead, but confirmed live it's
+   too sparse to rely on (376 rows vs. 51,048 "Outcome of Board Meeting"
+   rows in the 5-year corpus) — most companies don't file a matching
+   intimation subject. Tested live 2026-07-16 against the real June'26
+   quarter catch-up window (01-06-2026 to 16-07-2026): correctly
+   identified 13 symbols with a genuine results disclosure, 12 of which
+   we'd already captured via the full-universe pull and 1 (`ITI`)
+   genuinely new. Two symbols already in our data (`LTTS`, `TATAELXSI`)
+   for the same period were NOT triggered — checked and confirmed
+   consistent, not a bug: both have `disclosure_date = NULL` for that
+   period (the NULL-capture fallback), meaning we never had a confirmed
+   announcement match for them in the first place, so the trigger
+   correctly can't find one either.
+2. **Full-universe safety net** (`run_periodic.sh`, standalone, NOT called
+   from `run_nightly.sh`): sweeps all 4 scripts across the entire universe.
+   Catches whatever the reactive trigger misses — a disclosure subject
+   pattern not yet discovered, a transient fetch failure, a
+   `corporate_announcements` gap that day. Idempotent upsert makes
+   re-running against companies with nothing new cheap (just re-confirms).
+   Suggested cadence once scheduled: weekly during results season
+   (~6 weeks after each quarter-end), monthly otherwise — not yet
+   scheduled, same as everything else in this doc.
+
+Open question, not yet tested: does screener.in's own data reflect a
+company's results same-day as the NSE disclosure, or is there a lag? If
+there's a lag, the nightly trigger might fetch before screener.in has the
+new quarter, silently getting the same (stale) data back — harmless
+(idempotent), but would mean the new quarter shows up a day late via the
+next night's trigger re-running against the SAME announcement... actually
+it won't re-trigger, since it only scans *that day's* announcements. Worth
+verifying with a live company known to be mid-results-season.
 
 ### Stage 4 — Infrastructure, deferred
 

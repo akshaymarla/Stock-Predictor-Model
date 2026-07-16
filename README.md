@@ -259,6 +259,38 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-16**: Designed and built the nightly/periodic scheduling
+  strategy (`RUNBOOK.md` Stages 2-3), ahead of actually scheduling cron --
+  the job stays run-by-hand until the model itself is built. Added
+  `src/trigger_quarterly_refetch.py`: reacts same-day to a results-
+  disclosure announcement in `corporate_announcements` (reusing
+  `screener_common.find_disclosure()`'s two validated patterns) and
+  re-fetches just that symbol across all 4 screener.in tables, instead of
+  sweeping the full ~500-symbol universe on a blind schedule. Considered
+  using the earlier "Board Meeting Intimation" (advance notice) as the
+  trigger instead, but confirmed live it's too sparse (376 rows vs. 51,048
+  "Outcome of Board Meeting" rows in the 5-year corpus) to rely on. Added
+  `run_periodic.sh` as the full-universe safety-net sweep (standalone, not
+  called from `run_nightly.sh`) to catch whatever the nightly trigger
+  misses. `run_nightly.sh` extended to also run `fetch_macro_sector.py`,
+  `fetch_sector_membership.py`, `compute_target_labels.py`, and
+  `assemble_feature_matrix.py` nightly, keeping the whole macro/sector
+  pipeline current as new data lands.
+
+  Tested live against the real June 2026 quarter-end catch-up window
+  (01-06-2026 to 16-07-2026): correctly identified 13 symbols with a
+  genuine results-disclosure announcement. 12 already had confirmed
+  disclosure dates from earlier today's full-universe pull (re-confirmed,
+  not newly discovered). The 13th, `ITI`, surfaced a real edge case: its
+  June-window announcement was actually a *delayed March'26 filing* (SEBI
+  LODR Q4/annual results, submitted late), not a June'26 result at all --
+  correctly left with `disclosure_date = NULL` for that period since it
+  falls outside the 65-day window, exactly the same late-filer pattern
+  already seen with `BBTC`. Confirms the trigger can't assume "any
+  disclosure in the window is for the expected quarter" -- it just reacts
+  to a real disclosure and lets the existing window logic sort out which
+  period it actually belongs to.
+
 - **2026-07-16**: Added `model_feature_matrix` + `src/assemble_feature_matrix.py`
   -- Step 5 (final step) of the macro/sector shock feature build. Features
   only -- deliberately does NOT join in `model_target_labels`, so labels
