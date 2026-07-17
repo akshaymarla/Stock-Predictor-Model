@@ -1,0 +1,6 @@
+data/nifty_pipeline.db
+data/backfill_checkpoint.json
+.env
+logs/
+__pycache__/
+*.pyc
