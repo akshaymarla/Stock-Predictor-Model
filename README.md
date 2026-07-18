@@ -259,6 +259,212 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-16**: Ran SHAP feature attribution + Platt/isotonic calibration
+  correction for `model_14d`/`model_30d` (rolling-window strategy only,
+  the one picked earlier), per `docs/model_build_spec.md` Sections 7 and
+  10. Added `models/shap_and_calibration.py` and
+  `splitting.add_calibration_split()` -- a proper 3-way fold split
+  (model-fit train / calibration hold-out / test, each separated by its
+  own embargo) so the calibrator is fit on data the underlying model never
+  trained on, per spec Section 7's explicit requirement.
+
+  **Real correction, not a confirmation**: SHAP does NOT support the
+  earlier finding that `sh_promoter_pct` is 30d's top feature. Under mean
+  |SHAP value| (summed across folds), it ranks 7th (0.346) -- `india_vix_close`
+  (0.989), `fin_days_since_disclosure` (0.689), and `fin_eps` (0.620) are
+  all well ahead of it. `india_vix_close` is the clear top feature for
+  BOTH horizons under SHAP, more dominant than the split-count ranking
+  suggested. The institutional-neglect hypothesis (does low promoter/
+  institutional-holding carry real predictive weight?) is **not currently
+  supported** by this more rigorous check -- the earlier split-count-based
+  finding should not be treated as confirmed.
+
+  **A genuine, unexpected finding about Platt scaling**: verified at full
+  scale (not assumed) that calibration is supposed to be AUC-invariant
+  (any monotonic transform preserves ranking) -- but Platt scaling's AUC
+  changed substantially in several folds (14d fold 3: 0.5317 -> 0.4683,
+  30d fold 3: 0.5386 -> 0.4614). Root cause, confirmed by checking the
+  fitted Platt coefficients directly: whenever the raw model's AUC ON THE
+  CALIBRATION SLICE ITSELF happened to dip below 0.5 (pure sampling noise
+  -- the true signal is weak enough that a modest 60-trading-day subsample
+  can land on the wrong side of random by chance), the Platt-fitted
+  logistic regression learned a NEGATIVE coefficient, inverting the
+  ranking when applied to the test set (0.5317 -> 0.4683 is exactly
+  `1 - 0.5317`, a near-total rank inversion). Isotonic regression is
+  structurally immune to this failure mode (constrained non-decreasing by
+  construction, so it can flatten but never invert) -- its AUC only
+  drifted slightly (tie-related, 0.001-0.03) in every fold, including the
+  same ones where Platt inverted disastrously. **Recommendation: use
+  isotonic, not Platt scaling, for this model** -- a specific, evidenced
+  choice, not a generic preference.
+
+  **Calibration correction is fold-dependent, confirmed by direct
+  comparison, not assumed to universally help**: fold 2 (14d and 30d both
+  -- calibration-slice AUC meaningfully above 0.5, 0.540 and 0.556
+  respectively) shows isotonic correction clearly tightening
+  miscalibration (e.g. 14d fold 2 at predicted=0.65: raw diff -0.106 ->
+  isotonic diff +0.012). The fold-5-specific pattern flagged in the
+  earlier LightGBM report (stayed under-confident even at high predicted
+  probabilities) did NOT get fixed by isotonic correction -- its
+  calibration slice had an AUC of 0.463, itself below random, so isotonic
+  had no real signal to work with and instead collapsed 99.8% of test
+  predictions into a single narrow bucket rather than correcting the
+  pattern. Same root story for 30d fold 3 (calibration-slice AUC 0.464).
+  Honest conclusion: calibration correction can only reshape signal that
+  exists in the calibration slice, not manufacture signal that isn't
+  there -- its reliability depends on having a large-enough, stable-enough
+  calibration slice, which isn't guaranteed fold to fold when the
+  underlying model's edge is this thin everywhere.
+
+  Full report + interactive comparison charts (AUC raw/Platt/isotonic per
+  fold, SHAP rankings, before/after calibration curves for a working vs.
+  non-working fold): `models/reports/shap_calibration_report.json`
+  (gitignored, regenerate via `python models/shap_and_calibration.py`).
+
+- **2026-07-16**: Trained `model_14d` and `model_30d` (LightGBM) per
+  `docs/model_build_spec.md` build order step 4, saved to the repo at
+  `docs/model_build_spec.md` (updated with a new Section 2b requiring an
+  expanding-vs-rolling-window comparison, motivated directly by the
+  naive-baseline finding below). Each horizon trained TWICE — expanding
+  window and rolling window (~1.9 years, fixed at fold 1's expanding-window
+  training size so fold 1 is identical between strategies, isolating the
+  window-strategy effect to folds 2-5) — using the same walk-forward/
+  embargo splitting utility as the baselines, with test/embargo boundaries
+  verified programmatically identical between strategies before training
+  started.
+
+  **Honest result, not smoothed over**: LightGBM does NOT clearly beat the
+  momentum-only baseline in every fold. It's worse than `simple_logreg` in
+  14d fold 4 and 30d folds 2 and 4 (both window strategies). Mean AUC
+  across folds 2-5 (fold 1 excluded since it's identical either way): 14d
+  — simple_logreg 0.5208, lightgbm_expanding 0.5200, lightgbm_rolling
+  0.5297; 30d — simple_logreg 0.5246, lightgbm_expanding 0.5202,
+  lightgbm_rolling 0.5243. **Window strategy pick: rolling** — equal-or-
+  better mean AUC in both horizons and a meaningfully better result in the
+  most recent fold (14d: 0.570 vs 0.535; 30d: 0.591 vs 0.580) for both
+  horizons, though the margin is modest given how weak the overall signal
+  is everywhere — not a decisive win, stated as such rather than oversold.
+
+  **Calibration is fold-dependent, not a simple "overconfident" story**
+  (the spec assumed gradient-boosted trees are typically overconfident —
+  checked directly rather than assumed): folds 1-4 show the classic shape
+  (under-confident at low predicted probabilities, over-confident at
+  high ones), but fold 5 stays under-confident even at high predictions —
+  tracking the same base-rate regime shift the naive-baseline bug
+  investigation surfaced. Not yet corrected with a calibration step (Platt/
+  isotonic, per spec Section 7) — flagged as a real next step, not done.
+
+  **Feature importance confirms the spec's own horizon hypothesis**
+  (Section 1: "shorter horizon leans more on momentum/catalysts, longer
+  horizon leans more on fundamentals"): 14d's top features are macro/
+  momentum-leaning (`nifty50_dist_50dma_pct`, `india_vix_close`,
+  `volatility_20d`), while 30d's top feature is `sh_promoter_pct`
+  (shareholding) with fundamentals (`fin_eps`, `cf_net_cash_flow`,
+  `bs_total_assets`, `fin_sales`) more prominent throughout — a real,
+  measured signal directly relevant to the project's "institutionally
+  neglected" hypothesis, not yet confirmed via proper SHAP analysis
+  (explicitly deferred per spec Section 10 until this basic loop was
+  trustworthy — it now is, SHAP is the natural next step).
+
+  Full comparison report (baselines + both window strategies, AUC/
+  calibration/feature-importance charts, toggle between horizons):
+  `models/reports/lightgbm_report.json` (gitignored, regenerate via
+  `python models/train_lightgbm.py`).
+
+  **Two corrections after independent review** of the numbers above (both
+  checked directly against the raw report JSON and the DB, not assumed):
+  (1) `sh_promoter_pct` is 30d's top feature only when averaged across all
+  5 folds (699.4, clearly #1) -- in fold 5 specifically `fin_eps` edges it
+  out (800 vs. 527, `sh_promoter_pct` 8th that fold). Averaging is the more
+  trustworthy read (a single fold's ranking is noisier), so the conclusion
+  stands, but stated now as "top on average across folds," not an
+  unqualified "top feature." The "not yet confirmed via SHAP" caveat
+  matters more than usual here specifically because the institutional-
+  neglect hypothesis is a real project thesis, not just a nice-to-have --
+  LightGBM's default split-count importance has known biases (can
+  overweight frequently-splitting continuous features relative to actual
+  predictive contribution), so this finding should be confirmed with real
+  SHAP values before anyone leans on it.
+  (2) The rolling window's `train_rows` isn't constant across folds despite
+  a genuinely fixed 486-trading-day window (verified: exactly 486 days
+  every fold, no boundary bug) -- it climbs steadily (200,218 -> 224,513
+  for 14d, ~12% growth fold 1 to fold 5). Investigated directly rather than
+  assumed: confirmed via each symbol's first `daily_prices` date that this
+  is real new-listing/IPO growth entering the tracked universe over
+  calendar time (407 symbols predate the backfill window entirely, then a
+  steady +44/+19/+16/+21/+25 new symbols across the five fold windows in
+  order) -- not a window-boundary artifact, and it affects both window
+  strategies equally, so it doesn't undermine the expanding-vs-rolling
+  comparison.
+
+- **2026-07-16**: Fixed a real reporting bug in `models/train_baselines.py`
+  the user caught by reading the baseline report closely: the naive
+  baseline's precision/recall looked internally inconsistent (recall
+  flipping to exactly 0 or exactly 1 in a pattern that didn't track the
+  displayed "base_rate"). Root cause, confirmed by direct computation: the
+  naive baseline's classification decision comes from the TRAIN fold's
+  base rate compared to a 0.5 threshold (correct -- using test-fold
+  information to build the prediction would itself be a leak), but
+  `evaluate.py`'s reported `"base_rate"` field was `np.mean(y_true)` on
+  the TEST fold -- two different numbers sharing one ambiguous label.
+  Confirmed empirically across all 5 folds x 2 horizons: 8 of 10 land on
+  opposite sides of 0.5 for train vs. test, explaining the "flip" exactly.
+  Also surfaced a deeper, genuinely useful finding along the way: every
+  fold's TRAIN base rate sits within ~2.5pp of 0.5 (0.492-0.525) even
+  though TEST base rates swing 42.3%-58.3% -- expanding windows average
+  out the regime swings, so the naive baseline's predicted class is
+  effectively decided by ~1pp of noise, and precision/recall at a fixed
+  threshold amplify that into a full 0-to-1 swing. AUC (mathematically
+  exactly 0.5 for any constant predictor) is the metric that actually
+  reflects this baseline's zero-information nature; precision/recall here
+  are diagnostic, not comparable to the real model. Fixed by renaming the
+  ambiguous field to `actual_rate` and having `run_naive_baseline()`
+  return `train_base_rate` explicitly so it can be reported alongside it
+  as `predicted_prob`, with an inline note whenever the two disagree in
+  sign. Baseline report regenerated and re-published with both numbers
+  shown side by side plus an explanation of the mechanism.
+
+- **2026-07-16**: Started the model build (`model_build_spec.md`) in a new
+  `models/` directory, kept separate from `src/`'s data-pipeline scripts.
+  Re-verified Section 8's delisting/mid-history-dropout edge case against
+  2 real events rather than trusting the spec (`IIFLWAM`→`360ONE` and
+  `LTI`→`LTIMINDTREE`, both symbol changes during the 5-year backfill
+  window) -- confirmed `compute_target_labels.py` already handles this
+  correctly by construction (a row gets a 14d label but no 30d label right
+  at the cutoff, then no rows at all afterward), not by any special-cased
+  delisting logic. Flagged a deeper, separate survivorship-bias risk this
+  doesn't cover: `daily_prices`' ~539-symbol universe came from a single
+  `index_membership` snapshot, so any stock that left the Nifty 500
+  *before* that snapshot was never backfilled at all -- a data-layer
+  limitation, not fixable at the label layer.
+
+  Built `models/splitting.py` (walk-forward/embargo cross-validation,
+  Sections 4-5), `models/data_loader.py` (joins momentum features computed
+  fresh from `daily_prices` + context features from `model_feature_matrix`,
+  deliberately excluding `sector_*` columns since they're 0%/NULL for all
+  current training history -- see `model_feature_matrix`'s schema note),
+  `models/evaluate.py` (discrimination + calibration, Section 7), and
+  `models/train_baselines.py` (Section 6, run BEFORE any real model per
+  the project's own principle).
+
+  Baselines run across 5 walk-forward folds per horizon (542,596 total
+  rows, 537 symbols). Two real findings: (1) the "beats Nifty" base rate
+  is NOT a stable ~50/50 -- it swings from 42.3% to 58.3% across folds,
+  confirming the spec's suspicion that a cap-weighted index vs. an
+  equal-weighted universe comparison isn't symmetric; (2) price/volume
+  momentum alone has very weak discriminative power at this horizon (AUC
+  ~0.48-0.55 across folds, barely above random) and mild overconfidence
+  where it does predict away from the base rate (one fold: 0.55 predicted
+  vs. 0.45 actual) -- sets a low, honest bar for the full LightGBM model
+  to clear, not a strong one. Full per-fold results in
+  `models/reports/baselines_report.json` (gitignored, regenerate via
+  `python models/train_baselines.py`).
+
+  Not yet built: the LightGBM models themselves (Sections 2-3, using the
+  same splitting/evaluation utilities), SHAP-based feature analysis
+  (explicitly deferred per Section 10 until the basic walk-forward loop
+  with baselines is trustworthy -- which it now is).
+
 - **2026-07-16**: Closed the open "does screener.in lag the NSE
   disclosure" question from the nightly-trigger design (`RUNBOOK.md`
   Stage 3) — screener.in typically updates same-day, so the nightly
