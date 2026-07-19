@@ -1,21 +1,23 @@
 # Model Build Spec — Outperformance Probability Models (14d / 30d)
 
-> ## ⚠ PENDING RE-VALIDATION (2026-07-19) — READ BEFORE TRUSTING ANY RESULT IN THIS DOC
-> A `daily_prices` data-corruption bug was found (see `next_phase_plan.md`
-> Section 0b): ~17% of the tracked universe (91/539 symbols, including
-> large liquid names) had non-equity instrument data silently mixed into
-> equity price history across essentially the entire backfill period
-> (2021-2026), caused by an inverted condition in `jugaad-data==0.33.1`.
-> This corrupted momentum features (`return_5d/10d/20d`, `volatility_20d`,
-> `volume_ratio_20d`) and `model_target_labels` for those symbols.
-> **Every AUC, calibration, and SHAP result documented below was computed
-> on this corrupted data.** The methodology itself (walk-forward/embargo,
-> isotonic-over-Platt, SHAP-over-default-importance) remains sound and
-> does not need to change — but every specific number below is
-> provisional until re-run against a clean `daily_prices` re-backfill and
-> rebuilt `model_target_labels`, per `next_phase_plan.md` Section 0b's
-> remediation steps. Do not cite any AUC/calibration/SHAP figure in this
-> doc as a settled result until that re-run has happened.
+> ## ✅ RE-VALIDATED ON CLEAN DATA (2026-07-19)
+> The `daily_prices` corruption described in `next_phase_plan.md` Section
+> 0b has been fully remediated (91-symbol systemic corruption plus
+> ~135K bogus non-trading-day rows plus a BE-series filtering gap, all
+> fixed; verified via an independent full-table sanity check showing zero
+> remaining unexplained anomalies) and every result below has been
+> **re-run against the clean data and confirms the original findings**:
+> AUC changes were small and bounded (±0.01-0.04 per fold, no systemic
+> collapse or suspicious jump), the institutional-attention feature
+> rankings are essentially unchanged (`sh_inst_mutual_fund_pct` stays the
+> strongest institutional feature at both horizons), and the same four
+> Platt-inversion fold-slots (14d fold 3, 14d fold 5, 30d fold 1, 30d
+> fold 3) inverted a THIRD independent time, now across three separate
+> runs with different feature sets AND different data quality — the
+> strongest evidence yet that these are structurally weak-signal calendar
+> windows, not an artifact of anything upstream. The findings below were
+> NOT an artifact of the corruption. Full comparison in the README
+> changelog.
 
 Handoff doc for Claude Code. Consolidates the model-design discussion from
 claude.ai into a concrete build spec. Read this alongside

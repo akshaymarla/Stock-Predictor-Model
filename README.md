@@ -8,7 +8,7 @@ progress — check the bottom of this file for the latest status.
 
 | Table | Script | Status |
 |---|---|---|
-| `daily_prices` | `src/fetch_daily_prices.py` | **CORRUPTION FOUND 2026-07-19, forward-fix applied, full re-backfill PENDING** -- 91/539 symbols (~17%) had non-equity instrument data (mostly bonds/NCDs) silently mixed into equity price history, caused by a `jugaad-data==0.33.1` library bug. `fetch_symbol()` now filters to `series=="EQ"`, verified fixed for new fetches -- but existing rows are NOT yet remediated. Treat all prior model results as provisional until `docs/next_phase_plan.md` Section 0b's remediation completes. Also: ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py` (NSE's `stock_history` API has a real gap NSE's own bhavcopy archive doesn't) -- see changelog; 2 rare dates remain unfilled by design |
+| `daily_prices` | `src/fetch_daily_prices.py` (nightly), `src/backfill_prices_via_bhavcopy.py` (bulk) | **Corruption fully remediated 2026-07-19** -- 556,778 clean rows, verified via independent full-table scan (zero unexplained anomalies remaining, 74 residual jumps all confirmed genuine corporate actions). See changelog for the full investigation: root cause, the switch to a bhavcopy-based bulk backfill, and two further bugs found and fixed along the way (bogus non-trading-day rows, an over-strict EQ-only series filter). Automated single-day-jump sanity check now runs after every fetch. Also: ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py`; 2 rare dates remain unfilled by design |
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response). `category`/`sentiment` columns added 2026-07-19 and populated for real via `src/classify_announcements_by_subject.py` -- `subject` turned out to already be NSE's own SEBI Reg. 30 structured category tag, so this is a free deterministic mapping, not a classifier. 269,056 training-universe rows classified (2.0% positive, 1.0% negative, 97.0% neutral). Feature-level use retired from the model after SHAP re-check (see changelog) -- data itself remains real and available. `src/classify_announcements.py` (LLM path) built but unused, blocked on API credentials, not needed given the free result |
@@ -20,8 +20,8 @@ progress — check the bottom of this file for the latest status.
 | `macro_regime_indicators` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- NIFTY 50/India VIX closes + rolling returns spot-checked against raw source data). First table of the macro/sector shock feature set (`macro_sector_shock_features.md`) -- see changelog for a real sourcing pivot away from the original design doc's plan |
 | `sector_membership` | `src/fetch_sector_membership.py` | Working (confirmed live 2026-07-16 -- all 15 sector constituent CSVs resolved, 249 rows, spot-checked against real symbols e.g. HDFCBANK correctly in Bank+Financial Services+Private Bank, RELIANCE in Energy+Infrastructure+Oil & Gas). Current-snapshot only, same caveat as `index_membership` |
 | `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
-| `model_target_labels` | `src/compute_target_labels.py` | Working (confirmed live 2026-07-16 -- 542,596 rows across 539 symbols after the daily_prices gap fix, up from 398,243 before it). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
-| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-19 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog |
+| `model_target_labels` | `src/compute_target_labels.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 547,965 rows across 539 symbols). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
+| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 
 ## Setup
@@ -259,6 +259,106 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-19 (CRITICAL remediation completed: daily_prices fully clean,
+  all models re-validated)**: Closes out the corruption investigation
+  below -- full `next_phase_plan.md` Section 0b remediation done.
+
+  **The per-symbol re-backfill approach turned out to be unusable.**
+  Repeated attempts against NSE's `stock_history` API within a couple of
+  hours drove what looks like IP-level throttling: `jugaad-data`'s
+  session cookie-refresh call (already known to have no timeout, see the
+  entry below) started hanging on nearly every symbol, even with
+  progressively more conservative pacing (1.0s -> 0.6s -> 0.3s sleep, a
+  30s hard per-symbol timeout added via `signal.alarm` in
+  `backfill_prices.py`). The hard-timeout made the hang non-fatal but the
+  failure rate reached ~100%, making forward progress impractical.
+
+  **Switched to NSE's bhavcopy settlement archive instead**
+  (`src/backfill_prices_via_bhavcopy.py`, new) -- a structurally
+  different fix, not just a workaround: `NSEArchives` is a completely
+  separate class from `NSEHistory` with its own session and an explicit
+  `timeout=4` on every call, so the exact hang mechanism above cannot
+  occur there. It's also a different NSE endpoint entirely (unaffected by
+  today's per-endpoint throttling) and far more efficient -- one file per
+  trading day covers every symbol, ~1,250 requests total instead of 539
+  symbols x several chunked requests each. Confirmed reliable: the full
+  5-year backfill completed in ~12 minutes once switched.
+
+  **Two further bugs found and fixed during this pass, beyond the
+  original series="ALL" bug**:
+  1. **~135,290 rows sat on dates that were never real trading days at
+     all** (weekends, and recognizable Indian market holidays -- Republic
+     Day, Independence Day, Gandhi Jayanti, Christmas, etc. -- confirmed
+     by cross-referencing every "anomalous" date against
+     `macro_regime_indicators`' authoritative trading calendar and
+     manually checking the weekday ones against known holidays). Pure
+     artifacts of the original corruption bug, safe to delete outright
+     (`DELETE ... WHERE date NOT IN (SELECT date FROM
+     macro_regime_indicators)`, scoped to the calendar's own covered
+     range to correctly exclude a few real trading days that predate/
+     postdate its coverage).
+  2. **The `series == "EQ"` filter was too strict.** Confirmed live via a
+     direct bhavcopy inspection (2021-08-09, POONAWALLA): the file has
+     TWO rows for the same symbol/date, one `series=BE` (close=172.50,
+     volume=338,685 -- the real trade) and one `series=N3` (close=1099,
+     volume=9 -- a genuine bond). `BE` (Book Entry / Trade-to-Trade
+     settlement) is real equity trading, used for newly-listed stocks and
+     stocks under surveillance (the same ASM/GSM concept this project
+     already tracks in `surveillance_flags`) -- not a bond series. The
+     old EQ-only filter correctly dropped the bond row but also wrongly
+     dropped the real BE-series trade, leaving old corrupted rows
+     untouched wherever a stock was trading in BE mode. Fixed
+     `fetch_bhavcopy_rows()` (shared by `backfill_price_gaps.py` and the
+     new bulk script) to accept `EQ` and `BE`, preferring `EQ` if both
+     somehow appear for the same symbol/date.
+
+  **Two genuine pre-IPO data issues found via the same investigation**
+  (not corruption, but the original bug's "series=ALL" request pulled in
+  bond-era history for companies that didn't have public equity yet):
+  `IREDA` (real IPO late Nov 2023) and `TATACAP`/Tata Capital (real IPO
+  Oct 2025) both had bond-series data misattributed to their equity
+  symbol for the entire period before their actual listings. Deleted 425
+  and 57 pre-IPO rows respectively -- these companies correctly have no
+  `daily_prices` history before their real listing dates now.
+
+  **Final verification**: independent full-table anomaly scan (same
+  >50% single-day-jump heuristic used throughout) found **zero**
+  remaining unexplained anomalies -- the 74 that remain were individually
+  checked and are all genuine corporate actions/stock splits (e.g. 360ONE
+  1773.3 -> 441.05, a clean ~4:1 split that persists afterward, confirmed
+  via normal volume throughout, not the tiny-volume signature of bond
+  contamination).
+
+  **Downstream rebuild, in order**: `avg_traded_value_20d` recomputed for
+  all 539 symbols, `model_target_labels` rebuilt from scratch (547,965
+  rows), `model_feature_matrix` reassembled (556,778 rows), then
+  baselines -> LightGBM (both window strategies) -> SHAP -> calibration
+  all re-run fresh and compared explicitly against the pre-cleanup
+  numbers rather than assumed stable:
+  - **AUC changes were small and bounded** (-0.03 to +0.04 per fold, no
+    systemic collapse or suspicious jump) -- consistent with removing
+    noise from ~17% of the universe, not a wholesale re-derivation.
+  - **The institutional-neglect hypothesis result is confirmed, not just
+    provisional**: `sh_inst_mutual_fund_pct` remains the strongest
+    institutional feature at both horizons (rank 8->7 at 14d, 6->6 at
+    30d, sums essentially unchanged), trend still beats level, `sh_inst_
+    pctrank` still ranks weakest. "Mixed/partial support" was not an
+    artifact of the corruption.
+  - **The Platt-scaling inversion pattern reproduced a THIRD independent
+    time**, at the exact same four fold-slots (14d fold 3, 14d fold 5,
+    30d fold 1, 30d fold 3) -- now confirmed across three separate runs
+    with different feature sets AND different underlying data quality.
+    Strong evidence these are structurally weak-signal calendar windows,
+    not an artifact of anything upstream. Isotonic mandate further
+    cemented.
+
+  Pending-re-validation warnings removed from `docs/model_build_spec.md`
+  and `docs/institutional_attention_feature.md`, replaced with
+  confirmation notes. `docs/next_phase_plan.md` Section 0b's acceptance
+  checklist fully checked off. Part B (portfolio backtest) work,
+  paused since the corruption was found, can now resume on trustworthy
+  data.
 
 - **2026-07-19 (CRITICAL: daily_prices corruption found, root-caused,
   forward-fixed -- full remediation pending)**: Found while building the

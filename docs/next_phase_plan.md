@@ -310,16 +310,34 @@ about achievable, cost-adjusted performance.
 
 ## 7. Acceptance checklist
 
-- [ ] `daily_prices` has `fetched_at`/`source` audit columns added
-- [ ] Full ~539-symbol universe re-backfilled with the `series == "EQ"`
-      filter fix in place — not just the 91 originally-flagged symbols
-- [ ] `avg_traded_value_20d` recomputed and `model_target_labels` rebuilt
+- [x] `daily_prices` has `fetched_at`/`source` audit columns added
+- [x] Full ~539-symbol universe re-backfilled — via NSE's bhavcopy archive
+      instead of the per-symbol `stock_history` API originally planned
+      (that endpoint proved unusable: repeated attempts triggered what
+      looks like IP-level throttling manifesting as indefinite hangs in
+      `jugaad-data`'s untimed cookie-refresh call; bhavcopy is a
+      structurally different, already-proven-reliable endpoint, one file
+      per day covering all symbols). Also found and fixed two further
+      issues beyond the original series="ALL" bug during this pass:
+      ~135K rows sitting on dates that were never real trading days
+      (deleted), and an EQ-only series filter that was too strict
+      (dropping legitimate BE/trade-to-trade equity data, not just bonds
+      — fixed to accept EQ+BE). Verified via independent full-table scan:
+      zero remaining unexplained anomalies (74 residual jumps are all
+      confirmed genuine corporate actions/splits).
+- [x] `avg_traded_value_20d` recomputed and `model_target_labels` rebuilt
       from scratch on clean data
-- [ ] Baselines, LightGBM, SHAP, and calibration re-run on clean data,
+- [x] Baselines, LightGBM, SHAP, and calibration re-run on clean data,
       old vs. new numbers compared explicitly rather than assumed stable
-- [ ] Automated single-day-jump sanity check added to the nightly
-      pipeline, so this class of bug is caught going forward, not just
-      fixed retroactively
+      — AUC changes small and bounded (±0.01-0.04/fold), institutional-
+      attention hypothesis result confirmed unchanged, Platt inversion
+      pattern reproduced a third independent time at the same four
+      fold-slots. See README changelog for full comparison.
+- [x] Automated single-day-jump sanity check added to the nightly
+      pipeline (`check_price_jump_anomalies()` in `fetch_daily_prices.py`,
+      called from both the nightly path and `backfill_prices.py`), so
+      this class of bug is caught going forward, not just fixed
+      retroactively
 - [x] Confirmed whether sector features exist and are wired into the
       feature matrix — CLOSED as a known data-availability limitation,
       not a bug: `sector_membership` has exactly 1 snapshot,

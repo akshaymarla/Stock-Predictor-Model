@@ -1,6 +1,13 @@
 -- Schema for the first two tables of the Nifty alpha-model pipeline.
 -- SQLite for now (zero setup). Swap for Postgres later without changing the logic much.
 
+-- fetched_at/source added 2026-07-19 (next_phase_plan.md Section 0b) --
+-- this was the one table in the project without an audit trail, exactly
+-- why the jugaad-data series="ALL" corruption bug's origin couldn't be
+-- traced to a specific fetch run. source is always 'NSE' today but kept
+-- as a real column (not hardcoded downstream) for the same reason every
+-- other table in this project carries it -- provenance shouldn't be an
+-- afterthought bolted on only when something breaks.
 CREATE TABLE IF NOT EXISTS daily_prices (
     symbol              TEXT NOT NULL,
     date                TEXT NOT NULL,   -- YYYY-MM-DD
@@ -13,6 +20,8 @@ CREATE TABLE IF NOT EXISTS daily_prices (
     delivery_qty        INTEGER,
     delivery_pct        REAL,
     avg_traded_value_20d REAL,           -- rolling 20-day avg (close * volume), filled in post-load
+    source              TEXT,            -- 'NSE'
+    fetched_at          TEXT,            -- audit trail: when this row was last written
     PRIMARY KEY (symbol, date)
 );
 

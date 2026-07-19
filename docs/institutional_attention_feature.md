@@ -155,17 +155,17 @@ number:
    harness — this is the actual test of the hypothesis, don't skip
    straight to conclusions before this step.
 
-> ## ⚠ PENDING RE-VALIDATION (2026-07-19)
-> A `daily_prices` corruption bug affecting ~17% of the universe (see
-> `next_phase_plan.md` Section 0b) means the SHAP result below — the
-> project's founding hypothesis test — was computed on partly corrupted
-> momentum features and labels. **Treat "mixed/partial support" as
-> provisional, not final**, until re-run against a clean re-backfill.
-> This doesn't mean the conclusion is wrong — it may well hold up
-> unchanged — but it hasn't been confirmed on clean data yet, and this is
-> exactly the kind of result (the project's central thesis test) that
-> deserves the re-check rather than being grandfathered in because it
-> happened to be found first.
+> ## ✅ RE-VALIDATED ON CLEAN DATA (2026-07-19)
+> The `daily_prices` corruption (see `next_phase_plan.md` Section 0b) is
+> fully remediated and the SHAP re-check below has been re-run against
+> clean data. **"Mixed/partial support" is now a confirmed finding, not a
+> provisional one**: `sh_inst_mutual_fund_pct` remains the strongest
+> institutional feature at both horizons (rank 8→7 at 14d, 6→6 at 30d,
+> sums essentially unchanged), the trend-beats-level result holds, and
+> `sh_inst_pctrank` remains the weakest of the six institutional features
+> — the same shape of result the corrupted-data run found. This project's
+> founding hypothesis test got the scrutiny it deserved rather than being
+> grandfathered in, and it held up.
 
 ## 8. RESULT (2026-07-19) — hypothesis tested, confirmed via SHAP on real data
 

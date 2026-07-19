@@ -133,24 +133,74 @@ def add_rolling_avg_traded_value(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=["traded_value"])
 
 
-def upsert(conn, df: pd.DataFrame):
+def check_price_jump_anomalies(conn, symbols: list, jump_threshold: float = 0.5):
+    """Scans daily_prices for any single-day close-to-close jump beyond
+    jump_threshold (default 50%, generous given NSE circuit limits are
+    typically 5-20%) for the given symbols -- the exact heuristic that
+    found the jugaad-data series="ALL" corruption bug (2026-07-19, see
+    README changelog and docs/next_phase_plan.md Section 0b), now run
+    automatically after every fetch instead of only being discovered
+    months later by a downstream symptom (an absurd backtest return).
+    Loudly warns to stderr, doesn't block the upsert -- a genuine extreme
+    move (rare but real, e.g. a demerger/delisting-adjacent price reset)
+    is possible and shouldn't halt the pipeline, but it should never pass
+    silently either."""
+    if not symbols:
+        return
+    placeholders = ",".join("?" * len(symbols))
+    rows = conn.execute(
+        f"SELECT symbol, date, close FROM daily_prices "
+        f"WHERE symbol IN ({placeholders}) ORDER BY symbol, date",
+        symbols,
+    ).fetchall()
+    from collections import defaultdict
+    by_symbol = defaultdict(list)
+    for symbol, date, close in rows:
+        by_symbol[symbol].append((date, close))
+
+    anomalies = []
+    for symbol, series in by_symbol.items():
+        for i in range(1, len(series)):
+            prev_date, prev_close = series[i - 1]
+            date, close = series[i]
+            if prev_close and prev_close > 0:
+                if abs(close / prev_close - 1) > jump_threshold:
+                    anomalies.append((symbol, prev_date, prev_close, date, close))
+
+    if anomalies:
+        print(f"\n  [SANITY CHECK] {len(anomalies)} single-day jump(s) >{jump_threshold:.0%} "
+              f"found -- possible data corruption (e.g. the jugaad-data series=\"ALL\" bug, "
+              f"see README changelog 2026-07-19), NOT auto-corrected:", file=sys.stderr)
+        for symbol, prev_date, prev_close, date, close in anomalies:
+            pct = (close / prev_close - 1) * 100
+            print(f"    {symbol}: {prev_date} close={prev_close} -> {date} close={close} "
+                  f"({pct:+.1f}%)", file=sys.stderr)
+
+
+def upsert(conn, df: pd.DataFrame, fetched_at: str):
+    df = df.copy()
+    df["source"] = "NSE"
+    df["fetched_at"] = fetched_at
     rows = df[[
         "symbol", "date", "open", "high", "low", "close", "prev_close",
         "volume", "delivery_qty", "delivery_pct", "avg_traded_value_20d",
+        "source", "fetched_at",
     ]].values.tolist()
 
     conn.executemany(
         """
         INSERT INTO daily_prices
             (symbol, date, open, high, low, close, prev_close,
-             volume, delivery_qty, delivery_pct, avg_traded_value_20d)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             volume, delivery_qty, delivery_pct, avg_traded_value_20d,
+             source, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(symbol, date) DO UPDATE SET
             open=excluded.open, high=excluded.high, low=excluded.low,
             close=excluded.close, prev_close=excluded.prev_close,
             volume=excluded.volume, delivery_qty=excluded.delivery_qty,
             delivery_pct=excluded.delivery_pct,
-            avg_traded_value_20d=excluded.avg_traded_value_20d
+            avg_traded_value_20d=excluded.avg_traded_value_20d,
+            source=excluded.source, fetched_at=excluded.fetched_at
         """,
         rows,
     )
@@ -212,9 +262,10 @@ def main():
 
     combined = pd.concat(all_frames, ignore_index=True)
     combined = add_rolling_avg_traded_value(combined)
-    upsert(conn, combined)
+    upsert(conn, combined, datetime.now().isoformat())
     print(f"Done. Loaded {len(combined)} rows into daily_prices "
           f"({DB_PATH_MSG})")
+    check_price_jump_anomalies(conn, combined["symbol"].unique().tolist())
 
 
 DB_PATH_MSG = "data/nifty_pipeline.db"

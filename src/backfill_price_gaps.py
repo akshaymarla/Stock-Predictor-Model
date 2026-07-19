@@ -103,10 +103,28 @@ def _to_float(val):
         return None
 
 
+EQUITY_SERIES = {"EQ", "BE"}
+# EQ = normal equity settlement. BE = Book Entry / Trade-to-Trade -- STILL
+# REAL EQUITY, just under mandatory-delivery settlement rules (used for
+# newly-listed stocks and stocks under SEBI surveillance -- the same
+# ASM/GSM concept this project already tracks in surveillance_flags), not
+# a bond/NCD series. Found 2026-07-19 (see README changelog): a strict
+# "EQ"-only filter was silently dropping real POONAWALLA trading data for
+# a real BE-series window (confirmed live -- bhavcopy_raw() for
+# 2021-08-09 has TWO POONAWALLA rows, one series=BE close=172.50
+# volume=338685 [the real trade], one series=N3 close=1099.00 volume=9
+# [a genuine bond]) -- excluding BOTH "fixed" the bond contamination but
+# also newly broke the legitimate BE-series data, leaving old corrupted
+# rows untouched since bhavcopy then had nothing to offer for that date.
+# Bond/NCD series use different codes entirely (N1-N4 etc, confirmed
+# live), so accepting BE doesn't reintroduce that problem.
+
+
 def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
     """Returns a list of (symbol, date, open, high, low, close, prev_close,
-    volume, delivery_qty, delivery_pct) tuples for EQ-series symbols
-    already tracked in daily_prices.
+    volume, delivery_qty, delivery_pct) tuples for EQ/BE-series symbols
+    already tracked in daily_prices (see EQUITY_SERIES docstring above for
+    why BE is included).
 
     Confirmed live 2026-07-16: for at least one special-session date
     (2021-11-04, Diwali Muhurat trading), bhavcopy_raw() returned content
@@ -125,11 +143,12 @@ def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
                  for raw in (reader.fieldnames or []) if raw.strip() in BHAVCOPY_COLUMN_MAP}
     expected_date_str = dt.strftime("%Y-%m-%d")
 
-    rows = []
+    by_symbol = {}
     for row in reader:
         normalized = {field_map[k.strip()]: v.strip() for k, v in row.items()
                       if k.strip() in field_map}
-        if normalized.get("series") != "EQ":
+        series = normalized.get("series")
+        if series not in EQUITY_SERIES:
             continue
         symbol = normalized.get("symbol", "")
         if symbol not in known_symbols:
@@ -143,8 +162,17 @@ def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
             # on a special-session date) -- don't silently write it under
             # the wrong date.
             continue
+        # a symbol should only be in ONE equity series on a given date, but
+        # if both EQ and BE somehow appear, prefer EQ (the normal case)
+        if symbol in by_symbol and by_symbol[symbol]["series"] == "EQ":
+            continue
+        normalized["series"] = series
+        by_symbol[symbol] = normalized
+
+    rows = []
+    for symbol, normalized in by_symbol.items():
         rows.append((
-            symbol, date_str,
+            symbol, expected_date_str,
             _to_float(normalized.get("open", "")),
             _to_float(normalized.get("high", "")),
             _to_float(normalized.get("low", "")),

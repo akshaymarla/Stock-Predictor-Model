@@ -24,15 +24,47 @@ Usage:
 """
 import argparse
 import json
+import signal
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from db import get_conn, get_universe
-from fetch_daily_prices import fetch_symbol, add_rolling_avg_traded_value, upsert
+from fetch_daily_prices import fetch_symbol, add_rolling_avg_traded_value, upsert, check_price_jump_anomalies
 
 CHECKPOINT_PATH = Path(__file__).resolve().parent.parent / "data" / "backfill_checkpoint.json"
+
+
+class HardTimeout(Exception):
+    pass
+
+
+def _alarm_handler(signum, frame):
+    raise HardTimeout("hard per-symbol timeout hit")
+
+
+def fetch_symbol_with_hard_timeout(symbol, from_date, to_date, hard_timeout: int):
+    """Wraps fetch_symbol() with a SIGALRM-based hard deadline, found
+    necessary 2026-07-19 (see README changelog): jugaad-data's own
+    session-cookie-refresh call (jugaad_data/nse/history.py's _get(),
+    `self.s.get(url, verify=self.ssl_verify)` for the cookie-bootstrap
+    request) has NO timeout parameter at all, unlike the main data
+    request which does time out cleanly at ~20s. When NSE stops
+    responding to that specific untimed call (observed twice live, after
+    ~20-40 symbols at both 0.3s and 0.6s inter-symbol sleep), the whole
+    process hangs indefinitely with no exception raised and no way to
+    detect it short of an external wall-clock deadline -- this provides
+    that deadline. On timeout, raises HardTimeout so the caller's normal
+    per-symbol except/retry-later handling covers it identically to a
+    clean network failure."""
+    old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(hard_timeout)
+    try:
+        return fetch_symbol(symbol, from_date, to_date)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 def load_checkpoint() -> set:
@@ -55,6 +87,15 @@ def main():
     parser.add_argument("--sleep", type=float, default=1.0)
     parser.add_argument("--reset-checkpoint", action="store_true",
                          help="ignore previous progress and start over")
+    parser.add_argument("--hard-timeout", type=int, default=30,
+                         help="max seconds any single symbol's fetch may take before being "
+                              "forcibly aborted and retried later -- see HardTimeout docstring, "
+                              "guards against jugaad-data's untimed cookie-refresh call hanging")
+    parser.add_argument("--batch-size", type=int, default=100,
+                         help="symbols per batch before a cooldown pause -- gives NSE's "
+                              "rate-limiting/session state time to reset")
+    parser.add_argument("--batch-cooldown", type=float, default=180,
+                         help="seconds to pause between batches")
     args = parser.parse_args()
 
     to_date = datetime.strptime(args.to_date, "%d-%m-%Y") if args.to_date else datetime.now()
@@ -84,21 +125,34 @@ def main():
     for i, symbol in enumerate(remaining):
         print(f"[{i+1}/{len(remaining)}] {symbol} ...")
         try:
-            df = fetch_symbol(symbol, from_date, to_date)
+            df = fetch_symbol_with_hard_timeout(symbol, from_date, to_date, args.hard_timeout)
             df = add_rolling_avg_traded_value(df)
-            upsert(conn, df)
+            upsert(conn, df, datetime.now().isoformat())
             done.add(symbol)
             save_checkpoint(done)  # checkpoint after every symbol, not just at the end
             print(f"    OK, {len(df)} rows")
+        except HardTimeout:
+            print(f"    FAILED: exceeded {args.hard_timeout}s hard timeout "
+                  f"(likely jugaad-data's untimed cookie-refresh call hanging -- "
+                  f"see README changelog)", file=sys.stderr)
+            failures.append(symbol)
         except Exception as e:
             print(f"    FAILED: {e}", file=sys.stderr)
             failures.append(symbol)
         time.sleep(args.sleep)
 
+        if args.batch_size and (i + 1) % args.batch_size == 0 and (i + 1) < len(remaining):
+            print(f"  -- batch of {args.batch_size} done, cooling off for "
+                  f"{args.batch_cooldown:.0f}s before continuing --")
+            time.sleep(args.batch_cooldown)
+
     print(f"\nBackfill pass complete. {len(done)}/{len(universe)} symbols done.")
     if failures:
         print(f"{len(failures)} symbols failed this run (will retry on next "
               f"run since they're not in the checkpoint): {failures}")
+
+    print("\nRunning full-universe price-jump sanity check...")
+    check_price_jump_anomalies(conn, list(done))
 
 
 if __name__ == "__main__":
