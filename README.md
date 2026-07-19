@@ -21,7 +21,7 @@ progress — check the bottom of this file for the latest status.
 | `sector_membership` | `src/fetch_sector_membership.py` | Working (confirmed live 2026-07-16 -- all 15 sector constituent CSVs resolved, 249 rows, spot-checked against real symbols e.g. HDFCBANK correctly in Bank+Financial Services+Private Bank, RELIANCE in Energy+Infrastructure+Oil & Gas). Current-snapshot only, same caveat as `index_membership` |
 | `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
 | `model_target_labels` | `src/compute_target_labels.py` | Working (confirmed live 2026-07-16 -- 542,596 rows across 539 symbols after the daily_prices gap fix, up from 398,243 before it). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
-| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-16 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug |
+| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-19 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Now includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage) -- see changelog |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 
 ## Setup
@@ -259,6 +259,97 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-19 (later)**: Built the institutional-attention feature-assembly
+  additions (`docs/institutional_attention_feature.md` Section 5) and
+  re-ran the SHAP check (Section 6) -- this is the actual test of the
+  project's original institutional-neglect hypothesis, now that
+  `shareholding_institutional_breakdown` is fully verified clean.
+
+  **Section 0 reconciliation caught a real gap in the doc's own
+  assumption**: Section 5 says to condition institutional-attention
+  features jointly with "the existing liquidity filter" -- checked
+  directly, no such filter exists anywhere in this pipeline (only
+  `surveillance_flags` is an active row-exclusion filter in
+  `models/data_loader.py`; `avg_traded_value_20d` was captured in
+  `model_feature_matrix` since 2026-07-16 but never exposed to the model).
+  Rather than inventing an arbitrary liquidity cutoff, added
+  `avg_traded_value_20d` to `ALL_FEATURE_COLUMNS` so LightGBM/SHAP can
+  surface the real interaction -- more rigorous than a fixed threshold,
+  and consistent with how every other conditioning relationship in this
+  project's model is handled (as a feature, not a hard filter).
+
+  **New features added**, per Section 5's "trend and relative rank, not
+  just raw levels" framing: `model_feature_matrix` gained
+  `sh_inst_total_pct`/`fii_fpi_pct`/`mutual_fund_pct` (raw levels,
+  point-in-time via `disclosure_date`), `sh_inst_qoq_change_pct`/
+  `yoy_change_pct` (computed at assembly time in
+  `assemble_feature_matrix.py` from the raw quarterly series, not
+  pre-baked into `shareholding_institutional_breakdown` -- YoY only
+  computed when a disclosed quarter is found 300-400 days prior, guarding
+  against irregular filing gaps). `sh_inst_pctrank` (cross-sectional
+  percentile rank of `sh_inst_total_pct` on the same date) is computed
+  fresh in `data_loader.py` instead, against the FULL universe --
+  sector-relative ranking isn't buildable yet, same accepted
+  `sector_membership` snapshot-only limitation already noted for
+  `avg_sector_*` columns. Verified the QoQ/YoY calculation by hand against
+  two real symbols before running at full scale: BSE (irregular filing
+  gaps, e.g. an extra 2019-09-26 filing) correctly produced QoQ=+0.0731/
+  YoY=+0.1431 for 2024-04-01 matching the raw quarterly series exactly;
+  HDFCBANK showed a plausible +22.6pp YoY jump around its 2023 merger with
+  HDFC Ltd. Full universe reassembled cleanly: 687,372 rows (matches
+  `daily_prices` exactly, same as before), ~95% coverage on the new level/
+  QoQ columns (matching `sh_promoter_pct`'s existing ~95% coverage, as
+  expected since both trace back to the same `shareholding_pattern`
+  disclosure chain), 85.5% on YoY (expected -- needs an even earlier
+  quarter to exist).
+
+  **SHAP re-check result -- the actual hypothesis test**: mean |SHAP value|
+  averaged across all 5 rolling-window folds, both horizons. Headline:
+  institutional attention carries real, non-trivial signal but is **not**
+  the dominant feature the original thesis hoped for -- `india_vix_close`
+  and (newly exposed) `avg_traded_value_20d` remain the top 2-4 features
+  for both horizons, consistent with every SHAP check run so far in this
+  project. Among the 6 new institutional features specifically:
+    - **Trend beats level, exactly as Section 5's design predicted**:
+      `sh_inst_qoq_change_pct`/`yoy_change_pct` both outrank the static
+      `sh_inst_total_pct` level in both horizons (e.g. 30d: YoY rank 9,
+      QoQ rank 10, vs. the raw level at rank 17) -- a genuinely confirmed
+      finding, not an assumption.
+    - `sh_inst_mutual_fund_pct` is the strongest single institutional
+      feature in both horizons (14d rank 9, 30d rank 6) -- ahead of the
+      aggregate `sh_inst_total_pct` and of `sh_inst_fii_fpi_pct`
+      specifically, suggesting mutual fund positioning carries more
+      signal than the FII/FPI split or the combined total.
+    - `sh_inst_pctrank` (the relative-rank feature) is the WEAKEST of the
+      6 new features in both horizons -- but this is confounded by only
+      having full-universe rank available rather than sector-relative
+      rank (see the `sector_membership` limitation above), so it
+      shouldn't be read as a clean rejection of the "neglect is relative"
+      framing, just a note that the current rank is coarser than the
+      original design called for.
+    - `sh_promoter_pct` stays low-ranked (14d rank 23, 30d rank 18),
+      consistent with the 2026-07-16 finding -- promoter ownership still
+      isn't a strong signal. But the real institutional-attention features
+      sit meaningfully above the noise floor (`recent_order_dispute_flag_30d`,
+      `volume_ratio_20d`), in the same lower-middle tier as
+      `cf_net_cash_flow`/`fin_net_profit`/`bs_borrowings`.
+  **Verdict: mixed / partially supported.** The institutional-neglect
+  hypothesis, tested for the first time with a genuine FII/DII feature
+  instead of `sh_promoter_pct`, shows real predictive signal -- especially
+  its trend over time and the mutual-fund-specific split -- but doesn't
+  displace `india_vix_close`/liquidity as the dominant features. Full
+  per-fold numbers in `models/reports/shap_calibration_report.json`
+  (previous report backed up to
+  `shap_calibration_report_prev_2026-07-16.json` for comparison).
+
+  **Calibration**: re-ran isotonic vs. Platt on the same folds -- the same
+  Platt AUC-inversion pattern recurred at fold 3 for both horizons (14d:
+  raw 0.5396 -> platt 0.4604; 30d: raw 0.5482 -> platt 0.4518, both
+  near-complementary pairs, same mechanism as 2026-07-16), a second
+  independent confirmation of the standing isotonic-mandate/Platt-ban
+  decision in `docs/model_build_spec.md` Section 7 -- not a new finding,
+  but good to see it reproduce rather than have been a one-off.
 
 - **2026-07-18**: Added `shareholding_institutional_breakdown` +
   `src/fetch_institutional_breakdown.py` per

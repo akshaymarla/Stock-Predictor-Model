@@ -157,19 +157,26 @@ number:
 
 ## 7. Acceptance checklist
 
-- [ ] Checked README.md's current real status for `shareholding_pattern`
+- [x] Checked README.md's current real status for `shareholding_pattern`
       before starting (Section 0) — not assumed from prior docs
-- [ ] Confirmed via real DevTools/API capture whether the institutional
+- [x] Confirmed via real DevTools/API capture whether the institutional
       breakdown already exists in the current shareholding-pattern source
-      (Section 1), before building a new source
-- [ ] `disclosure_date` follows the same real-timestamp-or-explicit-null
+      (Section 1), before building a new source — confirmed yes, no new
+      source needed
+- [x] `disclosure_date` follows the same real-timestamp-or-explicit-null
       discipline as every other table in this project
-- [ ] Trend (QoQ/YoY change) and sector/universe-relative rank features
-      built, not just raw institutional-holding levels
-- [ ] Institutional-attention features evaluated jointly with the
-      existing liquidity filter, not in isolation
-- [ ] Feature-importance re-check uses SHAP (per the standing requirement
+- [x] Trend (QoQ/YoY change) and universe-relative rank features built,
+      not just raw institutional-holding levels — sector-relative rank
+      not yet possible (sector_membership snapshot-only limitation, same
+      as elsewhere in this project), used full-universe rank instead,
+      documented as a known limitation rather than silently skipped
+- [x] Institutional-attention features evaluated jointly with liquidity —
+      found no hard liquidity filter actually exists in this pipeline
+      (this section assumed one did; reconciled directly against the real
+      code), so `avg_traded_value_20d` was added as a joint feature
+      instead of an arbitrary cutoff
+- [x] Feature-importance re-check uses SHAP (per the standing requirement
       from `model_build_spec.md` 7b), on the same validated walk-forward
       harness already in use
-- [ ] README.md status table + changelog updated per CLAUDE.md's
+- [x] README.md status table + changelog updated per CLAUDE.md's
       standing instruction

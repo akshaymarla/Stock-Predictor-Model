@@ -523,6 +523,23 @@ CREATE TABLE IF NOT EXISTS model_feature_matrix (
     sh_disclosure_date            TEXT,
     sh_promoter_pct               REAL,
     sh_public_pct                 REAL,
+    -- institutional (FII/DII) attention as of `date`, point-in-time via
+    -- disclosure_date same as sh_* above -- this is the actual test of the
+    -- project's original "institutionally neglected stocks" hypothesis,
+    -- which sh_promoter_pct never tested (promoter/insider ownership is a
+    -- different concept from institutional attention). See
+    -- docs/institutional_attention_feature.md. QoQ/YoY changes are computed
+    -- here (at feature-assembly time) from the raw quarterly figures in
+    -- shareholding_institutional_breakdown, same principle as other
+    -- derived-not-stored features in this table -- YoY is NULL unless a
+    -- disclosed quarter is found 300-400 days prior (guards against
+    -- irregular filing gaps producing a misleading delta).
+    sh_inst_disclosure_date       TEXT,
+    sh_inst_total_pct             REAL,
+    sh_inst_fii_fpi_pct           REAL,
+    sh_inst_mutual_fund_pct       REAL,
+    sh_inst_qoq_change_pct        REAL,
+    sh_inst_yoy_change_pct        REAL,
     -- announcement-derived signal (both subject AND details checked, see
     -- note above) -- crude keyword flag for regulatory/legal/order-related
     -- news in the trailing 30 days as of `date`, not NLP -- a real

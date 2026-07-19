@@ -112,6 +112,57 @@ def most_recent_as_of(series: list, date: str):
     return series[idx] if idx >= 0 else None
 
 
+def load_institutional_series(conn, symbol: str) -> list:
+    """[(disclosure_date, quarter_end_date, total_institutional_pct,
+    fii_fpi_pct, mutual_fund_pct), ...] sorted by disclosure_date --
+    disclosure_date IS NOT NULL is the point-in-time join constraint (same
+    discipline as load_disclosure_series). quarter_end_date is carried
+    alongside purely to measure the calendar gap between quarters for the
+    YoY trend guard in institutional_trend_as_of() below -- never used as
+    the join key itself."""
+    return conn.execute(
+        "SELECT disclosure_date, quarter_end_date, total_institutional_pct, "
+        "fii_fpi_pct, mutual_fund_pct FROM shareholding_institutional_breakdown "
+        "WHERE symbol = ? AND disclosure_date IS NOT NULL ORDER BY disclosure_date",
+        (symbol,),
+    ).fetchall()
+
+
+def institutional_trend_as_of(series: list, date: str):
+    """series: sorted by disclosure_date, as returned by
+    load_institutional_series(). Returns (as_of_row, qoq_change, yoy_change)
+    -- qoq_change/yoy_change are computed from the raw quarterly figures at
+    assembly time (docs/institutional_attention_feature.md Section 5), not
+    pre-baked into shareholding_institutional_breakdown. YoY only computed
+    when a disclosed quarter is found 300-400 days before the as-of
+    quarter's quarter_end_date; irregular filing gaps (a skipped or extra
+    quarter, seen live for symbol BSE) otherwise leave it correctly NULL
+    rather than compare against the wrong quarter."""
+    dates = [r[0] for r in series]
+    idx = bisect.bisect_right(dates, date) - 1
+    if idx < 0:
+        return None, None, None
+    row = series[idx]
+    total = row[2]
+
+    qoq_change = None
+    if idx > 0 and series[idx - 1][2] is not None and total is not None:
+        qoq_change = total - series[idx - 1][2]
+
+    yoy_change = None
+    if total is not None:
+        row_qed = datetime.strptime(row[1], "%Y-%m-%d")
+        for j in range(idx - 1, -1, -1):
+            days_diff = (row_qed - datetime.strptime(series[j][1], "%Y-%m-%d")).days
+            if days_diff > 400:
+                break
+            if 300 <= days_diff <= 400 and series[j][2] is not None:
+                yoy_change = total - series[j][2]
+                break
+
+    return row, qoq_change, yoy_change
+
+
 def load_announcements(conn, symbol: str) -> list:
     rows = conn.execute(
         "SELECT announcement_date, subject, details FROM corporate_announcements "
@@ -143,7 +194,7 @@ def most_recent_sector_snapshot(sector_snapshots: list, date: str):
 def compute_symbol_rows(symbol: str, price_series: list, macro: dict,
                          sector_benchmarks: dict, sector_snapshots: list,
                          fin_series: list, bs_series: list, cf_series: list,
-                         ratio_series: list, sh_series: list,
+                         ratio_series: list, sh_series: list, inst_series: list,
                          announcements: list, ann_dates: list, fetched_at: str) -> list:
     rows = []
     for date, close, volume, avg_traded_value_20d in price_series:
@@ -166,6 +217,7 @@ def compute_symbol_rows(symbol: str, price_series: list, macro: dict,
         cf = most_recent_as_of(cf_series, date)
         ratio = most_recent_as_of(ratio_series, date)
         sh = most_recent_as_of(sh_series, date)
+        inst, inst_qoq, inst_yoy = institutional_trend_as_of(inst_series, date)
 
         fin_days_since = None
         if fin:
@@ -187,6 +239,9 @@ def compute_symbol_rows(symbol: str, price_series: list, macro: dict,
             cf[0] if cf else None, cf[1] if cf else None,
             ratio[0] if ratio else None, ratio[1] if ratio else None,
             sh[0] if sh else None, sh[1] if sh else None, sh[2] if sh else None,
+            inst[0] if inst else None, inst[2] if inst else None,
+            inst[3] if inst else None, inst[4] if inst else None,
+            inst_qoq, inst_yoy,
             order_dispute_flag,
             fetched_at,
         ))
@@ -210,8 +265,11 @@ def upsert(conn, rows: list):
              cf_disclosure_date, cf_net_cash_flow,
              ratio_disclosure_date, ratio_roce_pct,
              sh_disclosure_date, sh_promoter_pct, sh_public_pct,
+             sh_inst_disclosure_date, sh_inst_total_pct, sh_inst_fii_fpi_pct,
+             sh_inst_mutual_fund_pct, sh_inst_qoq_change_pct, sh_inst_yoy_change_pct,
              recent_order_dispute_flag_30d, fetched_at)
-        VALUES (?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?, ?,?, ?,?,?, ?,?)
+        VALUES (?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?, ?,?, ?,?,?,
+                ?,?,?,?,?,?, ?,?)
         ON CONFLICT(symbol, date) DO UPDATE SET
             close=excluded.close, volume=excluded.volume,
             avg_traded_value_20d=excluded.avg_traded_value_20d,
@@ -234,6 +292,12 @@ def upsert(conn, rows: list):
             ratio_disclosure_date=excluded.ratio_disclosure_date, ratio_roce_pct=excluded.ratio_roce_pct,
             sh_disclosure_date=excluded.sh_disclosure_date, sh_promoter_pct=excluded.sh_promoter_pct,
             sh_public_pct=excluded.sh_public_pct,
+            sh_inst_disclosure_date=excluded.sh_inst_disclosure_date,
+            sh_inst_total_pct=excluded.sh_inst_total_pct,
+            sh_inst_fii_fpi_pct=excluded.sh_inst_fii_fpi_pct,
+            sh_inst_mutual_fund_pct=excluded.sh_inst_mutual_fund_pct,
+            sh_inst_qoq_change_pct=excluded.sh_inst_qoq_change_pct,
+            sh_inst_yoy_change_pct=excluded.sh_inst_yoy_change_pct,
             recent_order_dispute_flag_30d=excluded.recent_order_dispute_flag_30d,
             fetched_at=excluded.fetched_at
         """,
@@ -274,6 +338,7 @@ def main():
         ratio_series = load_disclosure_series(conn, "ratios", ["roce_pct"], symbol)
         sh_series = load_disclosure_series(
             conn, "shareholding_pattern", ["promoter_pct", "public_pct"], symbol)
+        inst_series = load_institutional_series(conn, symbol)
 
         announcements = load_announcements(conn, symbol)
         ann_dates = [a[0] for a in announcements]
@@ -282,7 +347,7 @@ def main():
 
         rows = compute_symbol_rows(
             symbol, price_series, macro, sector_benchmarks, sector_snapshots,
-            fin_series, bs_series, cf_series, ratio_series, sh_series,
+            fin_series, bs_series, cf_series, ratio_series, sh_series, inst_series,
             announcements, ann_dates, fetched_at,
         )
         if rows:

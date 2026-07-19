@@ -34,6 +34,33 @@ already built, exclude what's not ready", flag availability explicitly):
   will start actually filtering once more days of surveillance data
   accumulate. Not silently hidden -- see the coverage note printed by
   load_training_data() and included in every training report.
+
+INSTITUTIONAL ATTENTION FEATURES (added 2026-07-19, per
+docs/institutional_attention_feature.md -- the actual test of the
+project's original "institutionally neglected stocks" hypothesis, since
+sh_promoter_pct measures promoter/insider ownership, a different concept):
+- sh_inst_total_pct/fii_fpi_pct/mutual_fund_pct (raw levels) and
+  sh_inst_qoq_change_pct/yoy_change_pct (trend) are pulled from
+  model_feature_matrix as-is, same as the other fundamentals.
+- sh_inst_pctrank (NOT in model_feature_matrix -- computed fresh here):
+  cross-sectional percentile rank of sh_inst_total_pct within the full
+  Nifty 500 universe on the same date, per Section 5's "neglect is
+  relative, not absolute" requirement. sector_membership-based ranking
+  isn't usable yet for the same reason sector_* columns are excluded
+  above (no historical snapshots), so this ranks against the full
+  universe rather than sector -- same accepted limitation, revisit
+  together.
+- avg_traded_value_20d is now included (previously captured in
+  model_feature_matrix but never exposed to the model) specifically so
+  the institutional-attention features can be evaluated JOINTLY with
+  liquidity, not in isolation, per Section 5's explicit requirement.
+  Note: no separate hard liquidity FILTER exists anywhere in this
+  pipeline (checked directly -- only surveillance_flags is an active
+  row-exclusion filter); docs/institutional_attention_feature.md Section 5
+  assumed one already existed and that assumption doesn't hold. Including
+  avg_traded_value_20d as a joint feature (rather than inventing an
+  arbitrary cutoff threshold) lets LightGBM/SHAP surface the actual
+  interaction, which is more rigorous than a fixed threshold would be.
 """
 import sys
 from pathlib import Path
@@ -50,6 +77,9 @@ FEATURE_COLUMNS_CONTEXT = [
     "cf_net_cash_flow",
     "ratio_roce_pct",
     "sh_promoter_pct", "sh_public_pct",
+    "sh_inst_total_pct", "sh_inst_fii_fpi_pct", "sh_inst_mutual_fund_pct",
+    "sh_inst_qoq_change_pct", "sh_inst_yoy_change_pct",
+    "avg_traded_value_20d",
     "recent_order_dispute_flag_30d",
     "nifty50_return_5d", "nifty50_return_10d", "nifty50_dist_50dma_pct",
     "india_vix_close", "vix_change_5d_pts", "vix_change_5d_pct",
@@ -60,7 +90,10 @@ MOMENTUM_COLUMNS = [
     "volume_ratio_20d", "delivery_pct",
 ]
 
-ALL_FEATURE_COLUMNS = MOMENTUM_COLUMNS + FEATURE_COLUMNS_CONTEXT
+# computed fresh in load_training_data(), not pulled from model_feature_matrix
+DERIVED_COLUMNS = ["sh_inst_pctrank"]
+
+ALL_FEATURE_COLUMNS = MOMENTUM_COLUMNS + FEATURE_COLUMNS_CONTEXT + DERIVED_COLUMNS
 
 
 def _compute_momentum(prices: pd.DataFrame) -> pd.DataFrame:
@@ -118,9 +151,25 @@ def load_training_data(conn, symbols: list = None) -> pd.DataFrame:
 
     df = labels.merge(prices[["symbol", "date"] + MOMENTUM_COLUMNS], on=["symbol", "date"], how="left")
     df = df.merge(context, on=["symbol", "date"], how="left")
+    df = df.merge(load_institutional_pctrank(conn), on=["symbol", "date"], how="left")
 
     df = apply_surveillance_exclusion(conn, df)
     return df
+
+
+def load_institutional_pctrank(conn) -> pd.DataFrame:
+    """Cross-sectional percentile rank of sh_inst_total_pct within the
+    full Nifty 500 universe on each date (institutional_attention_feature.md
+    Section 5 -- "neglect" is inherently relative, not an absolute level).
+    Deliberately always computed against the FULL universe, unfiltered by
+    any --symbols restriction the caller applies to load_training_data --
+    a rank relative to an arbitrary training subset wouldn't mean the same
+    thing as a rank relative to the real universe."""
+    full = pd.read_sql_query(
+        "SELECT symbol, date, sh_inst_total_pct FROM model_feature_matrix", conn,
+    )
+    full["sh_inst_pctrank"] = full.groupby("date")["sh_inst_total_pct"].rank(pct=True)
+    return full[["symbol", "date", "sh_inst_pctrank"]]
 
 
 def apply_surveillance_exclusion(conn, df: pd.DataFrame) -> pd.DataFrame:
