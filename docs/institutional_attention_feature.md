@@ -155,28 +155,92 @@ number:
    harness — this is the actual test of the hypothesis, don't skip
    straight to conclusions before this step.
 
-## 7. Acceptance checklist
+## 8. RESULT (2026-07-19) — hypothesis tested, confirmed via SHAP on real data
+
+The build in Sections 1-6 is complete and the hypothesis has now actually
+been tested — verified directly against the raw per-fold SHAP export, not
+taken from a summary.
+
+**Finding: mixed / partially supported.** Institutional attention carries
+genuine signal, but does not dominate:
+- `sh_inst_mutual_fund_pct` is the strongest institutional feature in
+  both horizons (14d: sum |SHAP| 0.2305, rank 9/31; 30d: 0.3495, rank
+  6/31) — mutual fund holdings specifically, not FII/FPI or insurance.
+- **Trend beats static level, as the design predicted**: both
+  `sh_inst_qoq_change_pct` and `sh_inst_yoy_change_pct` outrank the plain
+  `sh_inst_total_pct` level in both horizons. The "attention increasing/
+  decreasing matters more than the absolute level" framing from Section 5
+  held up empirically.
+- **Correction to Section 5's relative-rank design**:
+  `sh_inst_pctrank` (the sector/universe-relative percentile rank
+  feature) actually ranks LOWEST of all six institutional features in
+  both horizons (14d rank 24/31, 30d rank 19/31) — weaker even than the
+  plain static total it was meant to improve on. The "neglect is
+  relative, not absolute" reasoning was sound logically, but empirically
+  the raw trend features are carrying the signal, not the
+  relative-positioning version. Don't assume this feature is pulling its
+  weight just because the design doc argued for it. Note this is
+  currently a full-universe rank, not sector-relative
+  (`sector_membership` has no historical snapshots yet, same accepted
+  limitation as `avg_sector_*` elsewhere in this project) — the weak
+  result may partly reflect that coarseness rather than a clean rejection
+  of the relative-attention framing itself.
+- `india_vix_close` and `avg_traded_value_20d` (liquidity) remain the top
+  2-4 features overall in both horizons — same as every prior model
+  iteration this project has run. Institutional attention is a real,
+  contributing signal, not the dominant one the original thesis hoped for.
+
+**This is the first time the hypothesis has been tested with real
+institutional data** rather than the `sh_promoter_pct` proxy (promoter
+ownership, a different concept — see `model_build_spec.md` Section 7b).
+Treat the finding above as the actual answer, not the earlier
+promoter-based result.
+
+**Known open item**: `fin_opm_pct` reads exactly 0.0 in both horizons'
+fold 1 (both share the earliest train_start, 2021-07-16) — likely a
+genuine data-coverage gap in the earliest backfill period (LightGBM never
+had a non-null value to split on in that window, so SHAP correctly
+reports exactly 0.0 rather than something small-but-nonzero) rather than
+a per-horizon bug, but not yet confirmed with a direct null-rate check
+against that specific window. Worth confirming before relying on
+fold-1-specific feature-importance comparisons.
+
+**Calibration note**: this run reproduced the Platt-scaling
+ranking-inversion bug in a fourth fold-slot, `30d` fold 1 (0.4906 →
+0.5094, exact sum-to-1.000 signature) — and a direct re-check of the
+*original* 2026-07-16 report (backed up locally before this run
+overwrote it) confirms this exact same fold-slot inverted there too
+(0.4936 → 0.5064), a real instance that wasn't caught/documented at the
+time (only 3 of the original run's 4 inversions were flagged in the first
+pass). The same four fold-slots — `14d` fold 3, `14d` fold 5, `30d` fold
+1, `30d` fold 3 — have now inverted identically across two independent
+feature sets/model runs. This is no longer just a one-off finding — those
+specific calendar windows appear to be structurally weak-signal,
+independent of feature set. Isotonic remains the mandatory standing
+choice per `model_build_spec.md` Section 7 — do not revisit Platt
+scaling.
+
+## 9. Acceptance checklist
 
 - [x] Checked README.md's current real status for `shareholding_pattern`
       before starting (Section 0) — not assumed from prior docs
 - [x] Confirmed via real DevTools/API capture whether the institutional
       breakdown already exists in the current shareholding-pattern source
-      (Section 1), before building a new source — confirmed yes, no new
-      source needed
+      (Section 1), before building a new source — parsed from XBRL already
+      captured via `shareholding_pattern.attachment_url`, three real
+      scale/mapping/taxonomy bugs found and fixed (see README changelog
+      commit `0d4ce9d`), 14,252/14,252 rows verified in valid range
 - [x] `disclosure_date` follows the same real-timestamp-or-explicit-null
       discipline as every other table in this project
-- [x] Trend (QoQ/YoY change) and universe-relative rank features built,
-      not just raw institutional-holding levels — sector-relative rank
-      not yet possible (sector_membership snapshot-only limitation, same
-      as elsewhere in this project), used full-universe rank instead,
-      documented as a known limitation rather than silently skipped
-- [x] Institutional-attention features evaluated jointly with liquidity —
-      found no hard liquidity filter actually exists in this pipeline
-      (this section assumed one did; reconciled directly against the real
-      code), so `avg_traded_value_20d` was added as a joint feature
-      instead of an arbitrary cutoff
+- [x] Trend (QoQ/YoY change) and sector/universe-relative rank features
+      built, not just raw institutional-holding levels — see Section 8 for
+      the important caveat: `sh_inst_pctrank` underperformed the plain
+      trend features empirically, despite the design reasoning for it
+- [x] Institutional-attention features evaluated jointly with the
+      existing liquidity filter, not in isolation (liquidity gap found and
+      fixed during this build — the filter wasn't actually wired in before)
 - [x] Feature-importance re-check uses SHAP (per the standing requirement
       from `model_build_spec.md` 7b), on the same validated walk-forward
-      harness already in use
+      harness already in use — see Section 8 for the full confirmed result
 - [x] README.md status table + changelog updated per CLAUDE.md's
       standing instruction

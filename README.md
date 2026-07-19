@@ -260,6 +260,44 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-19 (independent verification round)**: Cross-checked the SHAP/
+  calibration re-run below against an independent read of the raw JSON
+  export (`models/reports/shap_calibration_report.json`) — same discipline
+  applied to every prior model result in this project. Every headline
+  claim held up exactly (feature sums, ranks, the trend-beats-level and
+  mutual-fund findings), with two real corrections found in the process:
+
+  1. **A fourth Platt-inversion fold-slot**: `30d` fold 1 also inverts
+     (0.4906→0.5094, sum-to-1.000 signature) -- missed in the original
+     summary, which only called out fold 3 (both horizons) and `14d` fold
+     5. Checking back against the *original* 2026-07-16 report (backed up
+     locally as `shap_calibration_report_prev_2026-07-16.json` before this
+     round's run overwrote it) confirms this same fold-slot inverted there
+     too (0.4936→0.5064) -- also not caught/documented at the time. All
+     four fold-slots (`14d` fold 3, `14d` fold 5, `30d` fold 1, `30d` fold
+     3) have now inverted identically across two independent feature sets
+     -- stronger evidence these specific calendar windows are
+     structurally weak-signal, not a fluke of one run. Doesn't change the
+     isotonic-mandate decision, just strengthens the evidence for it.
+  2. **`sh_inst_pctrank` underperforms**: the percentile-rank feature
+     Section 5 specifically argued for (institutional neglect is
+     relative, not absolute) actually ranks LOWEST of all six
+     institutional features in both horizons (14d rank 24/31, 30d rank
+     19/31) -- weaker than the plain static level it was meant to
+     improve on. Likely confounded by only having full-universe rank
+     available (no sector-relative rank yet, same `sector_membership`
+     limitation noted elsewhere), so not a clean rejection of the
+     "relative attention" framing -- but a real empirical result, not
+     swept under the rug just because the design reasoning for it was
+     sound.
+
+  Folded both corrections into `docs/institutional_attention_feature.md`
+  (new Section 8 with the full confirmed result) and
+  `docs/model_build_spec.md` (Section 7 updated to 4 confirmed Platt
+  instances with the cross-run-consistency framing; Section 7b's
+  institutional-neglect hypothesis marked RESOLVED with the mixed/partial
+  finding, replacing the "not yet tested" language).
+
 - **2026-07-19 (later)**: Built the institutional-attention feature-assembly
   additions (`docs/institutional_attention_feature.md` Section 5) and
   re-ran the SHAP check (Section 6) -- this is the actual test of the

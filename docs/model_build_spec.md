@@ -175,14 +175,19 @@ real problem, not a minor caveat.
   not a preference.** Verified directly (2026-07-18, see README
   changelog): when the raw model's AUC on the calibration slice dips below
   0.5 by sampling noise alone, Platt's logistic fit learns a negative
-  coefficient and **inverts the ranking** on test data. Confirmed three
-  separate times across the fold/horizon grid — 14d fold 3
-  (0.532→0.468), 30d fold 3 (0.539→0.461), 14d fold 5 (0.516→0.484) — in
-  all three cases the pre/post AUC pair sums to exactly 1.000, the
-  mathematical signature of a fully inverted ranking. Isotonic regression
-  is structurally immune to this (monotonic by construction — it can
-  flatten a ranking toward uninformative, but cannot invert it). Do not
-  use Platt scaling anywhere in this pipeline.
+  coefficient and **inverts the ranking** on test data. Confirmed across
+  two independent model runs (different feature sets) on four fold-slots
+  total — 14d fold 3 (0.532→0.468, later 0.540→0.460), 30d fold 3
+  (0.539→0.461, later 0.548→0.452), 14d fold 5 (0.516→0.484, later
+  0.514→0.486), and 30d fold 1 (0.494→0.506, later 0.491→0.509) — in
+  every case the pre/post AUC pair sums to exactly 1.000, the
+  mathematical signature of a fully inverted ranking. **The same four
+  fold-slots inverted in both independent runs** — strong evidence these
+  specific calendar windows are structurally weak-signal regardless of
+  feature set, not a fluke tied to one particular model iteration.
+  Isotonic regression is structurally immune to this (monotonic by
+  construction — it can flatten a ranking toward uninformative, but
+  cannot invert it). Do not use Platt scaling anywhere in this pipeline.
 
   **Calibration reshapes existing signal, it does not create signal that
   isn't there.** Confirmed directly: isotonic correctly improved
@@ -216,20 +221,20 @@ importance measures how often/how much a feature is used to split, not
 how much it actually moves the prediction, and the two disagreed
 substantially here.
 
-**Correction to the institutional-neglect hypothesis test**: the
-SHAP-corrected result does NOT mean the institutional-neglect hypothesis
-(the project's original differentiator idea) is false — it means
-`sh_promoter_pct` specifically isn't a strong predictor. `sh_promoter_pct`
-measures promoter/insider ownership, not institutional (FII/DII)
-attention — a different concept. This project has never actually had a
-clean feature testing the real hypothesis: `shareholding_pattern`'s build
-spec flagged from the start that NSE's raw filing doesn't natively split
-Public into FII/DII (see README/CLAUDE.md), so `fii_pct`/`dii_pct` have
-sat NULL since that table was built. **The institutional-neglect
-hypothesis has not yet been properly tested — the feature needed to test
-it doesn't exist yet.** Building a genuine FII/DII holding-change feature
-(or a reasonable proxy, e.g. analyst coverage count) is a real prerequisite
-before drawing any conclusion about this hypothesis, not a nice-to-have.
+**Correction to the institutional-neglect hypothesis test (RESOLVED,
+2026-07-19 — see `institutional_attention_feature.md` Section 8 for full
+detail)**: the SHAP-corrected result above did NOT mean the
+institutional-neglect hypothesis (the project's original differentiator
+idea) was false — it meant `sh_promoter_pct` specifically wasn't a strong
+predictor, since it measures promoter/insider ownership, not institutional
+(FII/DII) attention. A genuine institutional-attention feature has since
+been built and tested. **Confirmed finding: mixed / partially supported.**
+Institutional attention (specifically mutual fund holdings, and trend
+over time more than static level) carries real, measured signal — but
+does not dominate. `india_vix_close` and liquidity remain the top
+features in both horizons, same as every model iteration this project has
+run. Treat this as the actual, tested answer — not the earlier
+promoter-proxy result, and not a hypothetical pending further work.
 
 ## 8. Edge case: labels for stocks that exit the universe mid-window
 
