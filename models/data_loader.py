@@ -35,6 +35,37 @@ already built, exclude what's not ready", flag availability explicitly):
   accumulate. Not silently hidden -- see the coverage note printed by
   load_training_data() and included in every training report.
 
+CATALYST DETECTION (retired 2026-07-19, per docs/next_phase_plan.md
+Section 2): recent_order_dispute_flag_30d (keyword-regex, confirmed via
+SHAP to be the lowest-ranked feature in both horizons, 0.023/0.028) was
+replaced by recent_negative_catalyst_flag_30d/recent_positive_catalyst_flag_30d,
+sourced from a genuinely free, real classification mechanism --
+src/classify_announcements_by_subject.py discovered that
+corporate_announcements.subject already IS NSE's own SEBI Regulation 30
+structured event-category tag (262 distinct controlled-vocabulary values,
+100% populated, e.g. "Bagging/Receiving of orders/contracts", "Pendency
+of Litigation(s)/dispute(s)..."), not free text needing inference -- no
+LLM/keyword-classifier needed. Real run confirmed (269,056 training-
+universe rows classified: 2.0% positive, 1.0% negative, 97.0% neutral),
+model_feature_matrix reassembled with real (non-placeholder) flags.
+
+**SHAP re-check result: does NOT clear a meaningfully higher bar than the
+old regex.** Both new flags still occupy the bottom 1-2 slots of 32
+features in both horizons (recent_negative_catalyst_flag_30d: rank 32/32
+both horizons, actually WORSE than the old combined flag; recent_positive:
+rank 31/32 [14d] and 30/32 [30d], only marginally better). Working theory:
+these events are likely already reflected in price/volume momentum
+(return_5d/return_10d) by the time the model sees them, so a categorical
+flag is largely redundant. **Retired from the model's feature set**
+(excluded here, same as sector_* below) per the project's standing
+"don't leave a near-zero feature as unexamined dead weight" discipline --
+the underlying classification (corporate_announcements.category/
+sentiment) is real and kept for potential future use (e.g. category
+counts, not just a boolean flag), just not fed to model_14d/30d as-is.
+src/classify_announcements.py (the LLM path) remains unused, per the
+project's zero-cost-first decision -- this free approach already answered
+the question an LLM pass would have, at zero cost.
+
 INSTITUTIONAL ATTENTION FEATURES (added 2026-07-19, per
 docs/institutional_attention_feature.md -- the actual test of the
 project's original "institutionally neglected stocks" hypothesis, since
@@ -80,7 +111,6 @@ FEATURE_COLUMNS_CONTEXT = [
     "sh_inst_total_pct", "sh_inst_fii_fpi_pct", "sh_inst_mutual_fund_pct",
     "sh_inst_qoq_change_pct", "sh_inst_yoy_change_pct",
     "avg_traded_value_20d",
-    "recent_order_dispute_flag_30d",
     "nifty50_return_5d", "nifty50_return_10d", "nifty50_dist_50dma_pct",
     "india_vix_close", "vix_change_5d_pts", "vix_change_5d_pct",
 ]

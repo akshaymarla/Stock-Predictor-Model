@@ -51,18 +51,31 @@ CREATE INDEX IF NOT EXISTS idx_index_membership_snapshot ON index_membership(sna
 -- Confirmed 2026-07-13 against a live NSE DevTools response. seq_id is
 -- NSE's own unique announcement id -- a much more reliable dedupe key than
 -- (symbol, date, time, subject), which could theoretically collide.
+-- category/sentiment/classification_model/classified_at: filled in by
+-- src/classify_announcements.py (LLM classification pass, added per
+-- docs/next_phase_plan.md Section 2 -- replaces the earlier brittle
+-- keyword-regex catalyst detection in assemble_feature_matrix.py, which
+-- SHAP confirmed was the lowest-ranked feature in both model_14d/30d).
+-- Classification is applied to text already known as of
+-- announcement_date -- it doesn't change the point-in-time discipline,
+-- since the join into model_feature_matrix still keys off
+-- announcement_date, not classified_at (when we happened to run the LLM
+-- pass). NULL category means genuinely not yet classified, never guessed.
 CREATE TABLE IF NOT EXISTS corporate_announcements (
-    seq_id            TEXT NOT NULL,    -- NSE's own unique id for this announcement
-    symbol            TEXT NOT NULL,
-    isin              TEXT,             -- from sm_isin, stable identifier across symbol renames
-    announcement_date TEXT NOT NULL,    -- the knowledge-timestamp: when the market learned this
-    announcement_time TEXT,             -- HH:MM:SS if available, separate from date for clarity
-    subject           TEXT,             -- short headline/subject of the filing
-    details           TEXT,             -- longer description text, if provided
-    attachment_url    TEXT,             -- link to the underlying PDF filing, if any
-    category          TEXT,             -- controlled vocabulary, filled in later (NLP/manual pass)
-    source            TEXT NOT NULL,    -- 'NSE' or 'BSE'
-    fetched_at        TEXT NOT NULL,
+    seq_id              TEXT NOT NULL,    -- NSE's own unique id for this announcement
+    symbol              TEXT NOT NULL,
+    isin                TEXT,             -- from sm_isin, stable identifier across symbol renames
+    announcement_date   TEXT NOT NULL,    -- the knowledge-timestamp: when the market learned this
+    announcement_time   TEXT,             -- HH:MM:SS if available, separate from date for clarity
+    subject             TEXT,             -- short headline/subject of the filing
+    details             TEXT,             -- longer description text, if provided
+    attachment_url      TEXT,             -- link to the underlying PDF filing, if any
+    category            TEXT,             -- controlled vocabulary, see CATEGORIES in classify_announcements.py
+    sentiment           TEXT,             -- 'positive' / 'negative' / 'neutral', market-reaction framing not announcer tone
+    classification_model TEXT,            -- which model produced category/sentiment, for audit/reproducibility
+    classified_at       TEXT,             -- when the LLM classification ran (NOT the point-in-time join key -- that's still announcement_date)
+    source              TEXT NOT NULL,    -- 'NSE' or 'BSE'
+    fetched_at          TEXT NOT NULL,
     PRIMARY KEY (seq_id)
 );
 
@@ -540,11 +553,21 @@ CREATE TABLE IF NOT EXISTS model_feature_matrix (
     sh_inst_mutual_fund_pct       REAL,
     sh_inst_qoq_change_pct        REAL,
     sh_inst_yoy_change_pct        REAL,
-    -- announcement-derived signal (both subject AND details checked, see
-    -- note above) -- crude keyword flag for regulatory/legal/order-related
-    -- news in the trailing 30 days as of `date`, not NLP -- a real
-    -- sentiment/topic model is a separate, lower-priority tier
-    recent_order_dispute_flag_30d INTEGER,
+    -- announcement-derived signal, LLM-classified (docs/next_phase_plan.md
+    -- Section 2) -- replaces the earlier recent_order_dispute_flag_30d
+    -- keyword-regex flag, which SHAP confirmed was the lowest-ranked
+    -- feature in both horizons (0.023/0.028), consistent with the
+    -- brittleness flagged when it was first built. Derived from
+    -- corporate_announcements.category/sentiment (set by
+    -- src/classify_announcements.py) in the trailing 30 days as of `date`.
+    -- Both flags are 0 (not NULL) when no classified announcement falls in
+    -- the window, same convention as the flag they replace -- but will
+    -- read as an all-zero column until classify_announcements.py's real
+    -- run completes (blocked as of 2026-07-19 on missing API credentials,
+    -- see README changelog), same "built but not yet populated" situation
+    -- as sector_membership.
+    recent_negative_catalyst_flag_30d INTEGER,
+    recent_positive_catalyst_flag_30d INTEGER,
     fetched_at                    TEXT NOT NULL,
     PRIMARY KEY (symbol, date)
 );

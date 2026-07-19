@@ -46,11 +46,6 @@ from datetime import datetime, timedelta
 
 from db import get_conn
 
-ORDER_DISPUTE_KEYWORDS = (
-    "order", "dispute", "litigation", "penalty", "show cause",
-    "regulatory action", "investigation", "raid", "search warrant",
-)
-
 
 def load_symbols(conn, symbols_arg) -> list:
     if symbols_arg:
@@ -165,22 +160,34 @@ def institutional_trend_as_of(series: list, date: str):
 
 def load_announcements(conn, symbol: str) -> list:
     rows = conn.execute(
-        "SELECT announcement_date, subject, details FROM corporate_announcements "
+        "SELECT announcement_date, sentiment FROM corporate_announcements "
         "WHERE symbol = ? ORDER BY announcement_date",
         (symbol,),
     ).fetchall()
     return rows
 
 
-def has_recent_order_dispute(announcements: list, ann_dates: list, date: str, window_days: int = 30) -> int:
+def recent_catalyst_flags(announcements: list, ann_dates: list, date: str, window_days: int = 30) -> tuple:
+    """(negative_flag, positive_flag) -- replaces the earlier keyword-regex
+    has_recent_order_dispute() (see docs/next_phase_plan.md Section 2, SHAP
+    confirmed the regex flag was the lowest-ranked feature in both
+    horizons). Sourced from corporate_announcements.sentiment, set by
+    src/classify_announcements.py's LLM classification pass -- reads as
+    all-zero until that script's real run completes (blocked as of
+    2026-07-19 on missing API credentials, see README changelog), same
+    "built but not yet populated" situation as sector_membership. Both
+    flags are 0 (not NULL) when no classified announcement falls in the
+    window, same convention as the flag they replace."""
     window_start = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=window_days)).strftime("%Y-%m-%d")
     lo = bisect.bisect_left(ann_dates, window_start)
     hi = bisect.bisect_right(ann_dates, date)
-    for ann_date, subject, details in announcements[lo:hi]:
-        text = f"{subject or ''} {details or ''}".lower()
-        if any(kw in text for kw in ORDER_DISPUTE_KEYWORDS):
-            return 1
-    return 0
+    negative_flag, positive_flag = 0, 0
+    for ann_date, sentiment in announcements[lo:hi]:
+        if sentiment == "negative":
+            negative_flag = 1
+        elif sentiment == "positive":
+            positive_flag = 1
+    return negative_flag, positive_flag
 
 
 def most_recent_sector_snapshot(sector_snapshots: list, date: str):
@@ -224,7 +231,7 @@ def compute_symbol_rows(symbol: str, price_series: list, macro: dict,
             fin_days_since = (datetime.strptime(date, "%Y-%m-%d")
                                - datetime.strptime(fin[0], "%Y-%m-%d")).days
 
-        order_dispute_flag = has_recent_order_dispute(announcements, ann_dates, date)
+        negative_catalyst_flag, positive_catalyst_flag = recent_catalyst_flags(announcements, ann_dates, date)
 
         # fin_series columns: (disclosure_date, sales, net_profit, opm_pct, eps, result_type)
         rows.append((
@@ -242,7 +249,7 @@ def compute_symbol_rows(symbol: str, price_series: list, macro: dict,
             inst[0] if inst else None, inst[2] if inst else None,
             inst[3] if inst else None, inst[4] if inst else None,
             inst_qoq, inst_yoy,
-            order_dispute_flag,
+            negative_catalyst_flag, positive_catalyst_flag,
             fetched_at,
         ))
     return rows
@@ -267,9 +274,9 @@ def upsert(conn, rows: list):
              sh_disclosure_date, sh_promoter_pct, sh_public_pct,
              sh_inst_disclosure_date, sh_inst_total_pct, sh_inst_fii_fpi_pct,
              sh_inst_mutual_fund_pct, sh_inst_qoq_change_pct, sh_inst_yoy_change_pct,
-             recent_order_dispute_flag_30d, fetched_at)
+             recent_negative_catalyst_flag_30d, recent_positive_catalyst_flag_30d, fetched_at)
         VALUES (?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?, ?,?, ?,?,?,
-                ?,?,?,?,?,?, ?,?)
+                ?,?,?,?,?,?, ?,?,?)
         ON CONFLICT(symbol, date) DO UPDATE SET
             close=excluded.close, volume=excluded.volume,
             avg_traded_value_20d=excluded.avg_traded_value_20d,
@@ -298,7 +305,8 @@ def upsert(conn, rows: list):
             sh_inst_mutual_fund_pct=excluded.sh_inst_mutual_fund_pct,
             sh_inst_qoq_change_pct=excluded.sh_inst_qoq_change_pct,
             sh_inst_yoy_change_pct=excluded.sh_inst_yoy_change_pct,
-            recent_order_dispute_flag_30d=excluded.recent_order_dispute_flag_30d,
+            recent_negative_catalyst_flag_30d=excluded.recent_negative_catalyst_flag_30d,
+            recent_positive_catalyst_flag_30d=excluded.recent_positive_catalyst_flag_30d,
             fetched_at=excluded.fetched_at
         """,
         rows,

@@ -11,7 +11,7 @@ progress — check the bottom of this file for the latest status.
 | `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data). ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py` (NSE's `stock_history` API has a real gap NSE's own bhavcopy archive doesn't) -- see changelog; 2 rare dates remain unfilled by design |
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
-| `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response) |
+| `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response). `category`/`sentiment` columns added 2026-07-19 and populated for real via `src/classify_announcements_by_subject.py` -- `subject` turned out to already be NSE's own SEBI Reg. 30 structured category tag, so this is a free deterministic mapping, not a classifier. 269,056 training-universe rows classified (2.0% positive, 1.0% negative, 97.0% neutral). Feature-level use retired from the model after SHAP re-check (see changelog) -- data itself remains real and available. `src/classify_announcements.py` (LLM path) built but unused, blocked on API credentials, not needed given the free result |
 | `financial_results` | `src/fetch_financial_results.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 12,039 rows) — quarterly only; alias-based mapping for company-template variance; disclosure_date confirmed for 48.6%, rest captured with disclosure_date=NULL (see below) |
 | `balance_sheet` | `src/fetch_balance_sheet.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 5,057 rows); disclosure_date confirmed for 30.7% (mostly annual-cadence reporting, see below) |
 | `cash_flow` | `src/fetch_cash_flow.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 5,024 rows); disclosure_date confirmed for 30.9% |
@@ -21,7 +21,7 @@ progress — check the bottom of this file for the latest status.
 | `sector_membership` | `src/fetch_sector_membership.py` | Working (confirmed live 2026-07-16 -- all 15 sector constituent CSVs resolved, 249 rows, spot-checked against real symbols e.g. HDFCBANK correctly in Bank+Financial Services+Private Bank, RELIANCE in Energy+Infrastructure+Oil & Gas). Current-snapshot only, same caveat as `index_membership` |
 | `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
 | `model_target_labels` | `src/compute_target_labels.py` | Working (confirmed live 2026-07-16 -- 542,596 rows across 539 symbols after the daily_prices gap fix, up from 398,243 before it). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
-| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-19 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Now includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage) -- see changelog |
+| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-19 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 
 ## Setup
@@ -259,6 +259,125 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-19 (catalyst detection: free path found, tried, retired)**:
+  Revised `docs/next_phase_plan.md` Section 2 -- rather than defaulting
+  to the already-built LLM classification path (blocked on missing API
+  credentials, see the entry below), tried free options first, in order.
+
+  **2a found a genuine free win, and it changed the whole approach**:
+  a live capture of NSE's raw `corporate-announcements` response
+  confirmed `desc` -- already captured as `subject` in this table since
+  the fetch script was first built, just never used this way -- IS the
+  SEBI Regulation 30 structured event-category tag the doc hoped might
+  exist. 262 distinct controlled-vocabulary values across the full
+  813,037-row history (e.g. "Bagging/Receiving of orders/contracts",
+  "Pendency of Litigation(s)/dispute(s)...", "Awarding of order(s)/
+  contract(s)"), 100% populated. This made 2b-2d (expanded keyword list,
+  local classifier, local LLM) unnecessary -- `subject` already IS the
+  category, so this became "map a known finite vocabulary to sentiment"
+  rather than "infer a category from free text."
+
+  Built `src/classify_announcements_by_subject.py`: a deterministic
+  category->sentiment mapping (`POSITIVE_SUBJECTS`/`NEGATIVE_SUBJECTS`,
+  only clearly one-directional categories mapped, everything else --
+  administrative filings, genuinely mixed-direction categories like
+  "Credit Rating- Revision" -- defaults to neutral rather than guessed,
+  same discipline as every other classification in this project). Ran
+  for real on the 269,056-row training universe (free, instant, zero API
+  calls): 2.0% positive, 1.0% negative, 97.0% neutral. Reassembled
+  `model_feature_matrix` with the real (non-placeholder) flags:
+  `recent_positive_catalyst_flag_30d` true for 92,165 rows (13.4%),
+  `recent_negative_catalyst_flag_30d` true for 41,442 rows (6.0%).
+
+  **SHAP re-check: honest negative result.** Neither flag clears a
+  meaningfully higher bar than the old regex-based
+  `recent_order_dispute_flag_30d` (0.023/0.028, rank ~31/31). New sums:
+  `recent_negative_catalyst_flag_30d` 0.0094 (14d)/0.0085 (30d), rank
+  32/32 both horizons -- actually WORSE than the old combined flag.
+  `recent_positive_catalyst_flag_30d` 0.0292 (14d)/0.0510 (30d), rank
+  31/32 and 30/32 -- only marginally better, same bottom-of-the-list
+  position. Working theory: these events are likely already reflected in
+  price/volume momentum (`return_5d`/`return_10d`) by the time the model
+  sees them, so a categorical flag is largely redundant. Per the doc's
+  own explicit retirement criterion ("if the result still doesn't clear
+  a real bar... remove it from the feature set entirely"), and per
+  user confirmation, **both flags are now retired from
+  `models/data_loader.py`'s `ALL_FEATURE_COLUMNS`** (excluded, same
+  pattern as `sector_*`) -- the underlying classification
+  (`corporate_announcements.category`/`sentiment`) is kept, real, and
+  free to re-derive other features from later (e.g. category counts, not
+  just a boolean flag); it's the specific flag construction that didn't
+  earn its place, not the classification mechanism itself.
+  `src/classify_announcements.py` (the LLM path) remains unused --
+  this free approach already answered the question an LLM pass would
+  have, at zero cost.
+
+- **2026-07-19 (next-phase gap closures, Part A)**: Started
+  `docs/next_phase_plan.md` -- saved to `docs/`, Section 0 reconciled
+  against current real state before building anything.
+
+  **Section 1 (sector features) -- closed as a known limitation, not a
+  bug.** Checked directly: `sector_membership` has exactly 1 snapshot
+  (2026-07-16, 249 rows) despite `sector_daily_benchmarks` having full
+  history back to 2021-07-16 -- membership itself is snapshot-only. The
+  join in `assemble_feature_matrix.py`
+  (`most_recent_sector_snapshot()`) is already point-in-time-correct; the
+  blocker is pure data availability (`sector_count > 0` for 0 of 687,372
+  `model_feature_matrix` rows), already correctly reflected in
+  `data_loader.py`'s existing exclusion of `sector_*`. Not fixable by
+  code -- needs either the nightly cron running for a long stretch
+  (forward-looking only; 2021-present backfill history stays permanently
+  unsectored) or a historical sector-reconstitution data source, which
+  `schema.sql` already flags as a separate, not-yet-started task. No SHAP
+  re-run needed -- the columns aren't in `ALL_FEATURE_COLUMNS` at all.
+
+  **Section 3 (`fin_opm_pct`) -- confirmed genuine, closed.** Direct
+  null-rate check by disclosure year in `financial_results`: 2021 0%
+  populated, 2022 25%, 2023 onward ~80-85%. `sales`/`eps` are populated
+  consistently even in 2021-2022 -- this is an `opm_pct`-specific
+  sourcing gap in the earliest scraped period, not general missingness.
+  Fully explains the exact-0.0 SHAP value found in both horizons' fold 1
+  (train window starts 2021-07-16). No code fix -- exactly the kind of
+  structural missingness LightGBM's native NULL-handling exists for.
+
+  **Section 2 (catalyst detection) -- upgraded to LLM classification,
+  built but not yet run.** `recent_order_dispute_flag_30d`'s
+  keyword-regex (SHAP-confirmed lowest-ranked feature in both horizons,
+  0.023/0.028) is replaced by `src/classify_announcements.py`, which
+  classifies `corporate_announcements.subject`+`details` (both, not just
+  subject) into a category + sentiment via LLM, added as new
+  `category`/`sentiment`/`classification_model`/`classified_at` columns
+  on `corporate_announcements` (`category` already existed, documented
+  from the start as "filled in later"). Script is idempotent/resumable
+  (`WHERE category IS NULL`, same pattern as
+  `fetch_institutional_breakdown.py`), scoped to the training-universe
+  ~539 symbols by default (`--all-symbols` lifts this), and its
+  batching/parsing/upsert logic is verified end-to-end via a `--mock`
+  mode (canned fake responses, zero network calls) -- confirmed correct
+  parsing, out-of-vocabulary rejection, and DB writes on a real 47-row
+  test batch before reverting the fake data.
+
+  `assemble_feature_matrix.py`'s `has_recent_order_dispute()` /
+  `ORDER_DISPUTE_KEYWORDS` are removed, replaced by
+  `recent_catalyst_flags()` deriving `recent_negative_catalyst_flag_30d`/
+  `recent_positive_catalyst_flag_30d` from `sentiment` directly (not a
+  hardcoded category->sentiment mapping -- a buybacks and a rights issue
+  are both "corporate_action" but pull sentiment in opposite directions).
+  Full universe reassembled cleanly (687,372 rows, 2:30 runtime): both
+  new columns are correctly 0/0 for every row (not NULL), matching the
+  documented "built but not yet populated" state.
+
+  **BLOCKED, not silently skipped**: the real classification run hasn't
+  happened -- no `ANTHROPIC_API_KEY` or `anthropic` package found in this
+  environment, and this is a standalone pipeline script that needs its
+  own real credentials (can't borrow this session's access). Flagged
+  directly rather than mocking a fake result or quietly leaving the
+  feature dead. Once credentials exist: `pip install anthropic`,
+  `export ANTHROPIC_API_KEY=...`, `python src/classify_announcements.py`,
+  then re-run `assemble_feature_matrix.py` and re-check SHAP -- an
+  all-zero feature contributes nothing by construction, so this isn't a
+  real test of the upgrade yet, just confirmation the plumbing works.
 
 - **2026-07-19 (independent verification round)**: Cross-checked the SHAP/
   calibration re-run below against an independent read of the raw JSON
