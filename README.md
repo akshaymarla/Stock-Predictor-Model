@@ -22,6 +22,7 @@ progress — check the bottom of this file for the latest status.
 | `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
 | `model_target_labels` | `src/compute_target_labels.py` | Working (confirmed live 2026-07-16 -- 542,596 rows across 539 symbols after the daily_prices gap fix, up from 398,243 before it). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
 | `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (confirmed live 2026-07-16 -- 687,372 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug |
+| `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 
 ## Setup
 
@@ -258,6 +259,137 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-18**: Added `shareholding_institutional_breakdown` +
+  `src/fetch_institutional_breakdown.py` per
+  `docs/institutional_attention_feature.md` -- building the feature needed
+  to actually test the project's original institutional-neglect hypothesis
+  (flagged as untested in `model_build_spec.md` Section 7b, since
+  `sh_promoter_pct` measures promoter ownership, not institutional
+  attention). Per the doc's Section 0, reconciled against current real
+  state before starting rather than trusting the doc's own possibly-stale
+  assumptions -- confirmed `shareholding_pattern` never went through the
+  screener.in sourcing pivot (that only affected `financial_results` and
+  friends); it's been NSE-sourced via `corporate-share-holdings-master`
+  since 2026-07-13.
+
+  **Section 1's hypothesis confirmed conclusively, live**: the real
+  institutional breakdown was NOT a new data source to integrate --
+  `shareholding_pattern`'s summary API only exposes the coarse promoter/
+  public split, but the XBRL filing URL it already captures
+  (`attachment_url`, present on all 17,670 existing rows) contains the
+  full SEBI Table III breakdown: ~40 leaf categories via a
+  `CategoryOfShareholdersAxis` XBRL dimension (Mutual Funds, FPI Category
+  I/II, Banks, Insurance, AIFs, sovereign wealth funds, pension funds,
+  and more) -- confirmed by downloading and directly parsing a real
+  TRENT filing. `InstitutionsDomesticMember`/`InstitutionsForeignMember`
+  are NSE-computed rollup aggregates, not leaf categories -- confirmed
+  their values exactly equal the sum of their own children (e.g.
+  domestic institutions 0.2327 = Mutual Funds 0.1464 + Banks 0.0014 +
+  Insurance 0.0609 + AIF 0.0051 + Provident Funds 0.0169 + Sovereign
+  Wealth 0.0019), so `total_institutional_pct` uses these official
+  rollups directly rather than re-deriving a sum that could silently
+  drift from NSE's own total if a category is missed.
+
+  Tested on 3 symbols before the full run (135 quarters): 102 parsed
+  successfully, 33 failed cleanly on a real, explained gap -- NSE's own
+  API returns a literal placeholder URL
+  (`.../corporate/xbrl/-`) for filings with no XBRL attached (confirmed
+  live: 3,354 of 17,670 total rows have this exact placeholder, mostly
+  pre-2020 filings before/during SEBI's XBRL rollout) -- not a bug in our
+  original capture or the new parser.
+
+  **Real scale bug found and fixed after the first full run completed**
+  (14,253 rows parsed, 99.6% success against the ~14,316 fetchable
+  documents) -- a distribution sanity check (not just the earlier spot
+  check, which happened to land on a correctly-scaled row) showed
+  `total_institutional_pct` ranging up to 92.05, with ~5,524 of 14,253
+  rows (~39%) outside a plausible 0-1 fraction range. Root cause,
+  confirmed by downloading and directly comparing two real filings: NSE
+  revised the shareholding-pattern XBRL taxonomy at least once (namespace
+  is date-stamped, e.g. `.../shp/2025-05-31/...` vs `.../shp/2025-10-31/...`),
+  and `ShareholdingAsAPercentageOfTotalNumberOfShares` means something
+  different across versions -- newer schema uses a decimal fraction
+  (0.2582 = 25.82%), an older one uses a raw percentage number (25.82
+  directly). Confirmed exactly via `ShareholdingPatternMember` (the grand
+  total, which must always equal 100% of the company by definition): it
+  reads `1` in the newer schema, `100.00` in the older one. Fixed with a
+  self-calibrating per-filing check (if the filing's own total reads
+  `>10`, normalize every value in that filing by dividing by 100) rather
+  than hardcoding namespace version strings, since there could be more
+  than just these two versions across an 11-year filing history and this
+  approach is robust to all of them without cataloging each one. Verified
+  the fix against both real filings before re-running: HDFCBANK's
+  previously-wrong 84.65 now correctly normalizes to 0.8465, and the
+  already-correct newer-schema value (0.1464) is unchanged. Full table
+  cleared and the corrected fetch re-run from scratch (not a
+  partial/targeted fix) to guarantee every row uses the same, verified
+  scale -- final corrected row counts to follow in a later entry.
+
+- **2026-07-19**: Two more real bugs found and fixed in
+  `shareholding_institutional_breakdown`, on top of the 2026-07-18 scale
+  bug -- final verified state for the full table.
+
+  **Bug 2 -- category-mapping coverage**: after the scale fix's corrected
+  full re-fetch (14,252 rows), a follow-up distribution check found
+  `total_institutional_pct` was NULL for 6,993 of 14,252 rows (49%).
+  Root cause: a third distinct XBRL taxonomy era (member names like
+  lowercase `MutualFundsOrUtiMember`, a single combined `InstitutionsMember`
+  rollup instead of split domestic/foreign, `FinancialInstitutionOrBanksMember`/
+  `IndianFinancialInstitutionsOrBanksMember` instead of `BanksMember`) that
+  the original `CATEGORY_TO_COLUMN`/`NON_INSTITUTIONAL_MEMBERS` mapping
+  didn't recognize. Worse, the old code's `else: other_pct += val` default
+  silently swept genuinely non-institutional categories under unrecognized
+  older-era names (e.g. `NonInstitutionsMember`, `PublicShareholdingMember`)
+  into `other_institution_pct`, inflating it for those rows. Fixed by:
+  surveying all 81 distinct member names actually present across the full
+  dataset (via `raw_categories_json`, which already captured everything
+  unconditionally regardless of naming), building a comprehensive explicit
+  classification of all 81 into `CATEGORY_TO_COLUMN` / a new
+  `OTHER_INSTITUTIONAL_MEMBERS` allowlist / expanded `ROLLUP_MEMBERS` /
+  expanded `NON_INSTITUTIONAL_MEMBERS` (surfaced real NSE typos in the
+  process -- "Catergory", "Goverments", "Isis", lowercase "Coporatewhere"),
+  and flipping the unsafe "unrecognized defaults to included" behavior to a
+  safe "unrecognized defaults to excluded, with a loud `UNCLASSIFIED`
+  stderr warning" behavior. Added `--reprocess` mode
+  (`fetch_institutional_breakdown.py --reprocess`) that re-derives every
+  computed column from already-captured `raw_categories_json` with **zero
+  network calls** -- used here to fix the bug across all 14,252 rows
+  without re-fetching ~14,000 XBRL documents. Verified against the specific
+  known-broken row (360ONE, 2019-09-18) before running at full scale.
+
+  **Bug 3 -- BSE's taxonomy doesn't use a reliable total anchor**: even
+  after both fixes, 3 rows (symbol `BSE`, quarters 2023-12-31/2024-03-31/
+  2024-09-30) still had `total_institutional_pct` outside [0,1] (23.3,
+  25.73, 24.69). Root cause, confirmed by downloading and directly
+  inspecting BSE's real filing
+  (`SHP_187478_1099821_19042024105056_WEB.xml`): BSE Ltd (the exchange
+  itself) files under the `in-bse-shp` taxonomy, where
+  `ShareholdingPatternMember` -- normally a reliable 100%-total anchor for
+  the scale check -- instead holds an unrelated value (7.94) for this
+  filer, so the existing scale-normalization check never triggered and
+  BSE's institutional values stayed at percentage-number scale (e.g.
+  domestic 12.69 + foreign 13.04 = 25.73) instead of being divided by 100.
+  Confirmed the real total via the regulatory-guaranteed 3-way split
+  instead: `ShareholdingOfPromoterAndPromoterGroupMember` (0) +
+  `PublicShareholdingMember` (77.64) +
+  `SharesHeldByNonPromoterNonPublicShareholdersMember` (22.36) = exactly
+  100.00 (BSE, as a demutualized exchange, genuinely has no promoter).
+  Fixed by extracting the scale logic into `normalize_scale()` with this
+  3-way split as a fallback anchor whenever `ShareholdingPatternMember`
+  doesn't look like a plausible total (not near 1, not near 100) --
+  taxonomy-version-agnostic, doesn't depend on any single named member
+  being mapped correctly. `reprocess()` now also re-applies
+  `normalize_scale()` to the stored `raw_categories_json` (needed because
+  BSE's raw values were captured pre-fix, still at the wrong scale;
+  idempotent for the other 14,249 already-correct rows since their stored
+  total already reads ~1).
+
+  **Final verified state**: 14,252/14,252 rows have
+  `total_institutional_pct` populated (was 7,259/14,252 before bug 2's
+  fix), 0 rows outside [0,1] (was 5,524 before bug 1's fix, 3 after --
+  now 0), 0 `UNCLASSIFIED` warnings on a full reprocess run. Range
+  0.0-0.9263, mean 0.271.
 
 - **2026-07-16**: Ran SHAP feature attribution + Platt/isotonic calibration
   correction for `model_14d`/`model_30d` (rolling-window strategy only,

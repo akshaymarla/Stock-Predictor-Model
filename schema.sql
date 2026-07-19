@@ -278,6 +278,55 @@ CREATE TABLE IF NOT EXISTS shareholding_pattern (
 CREATE INDEX IF NOT EXISTS idx_shareholding_symbol ON shareholding_pattern(symbol);
 CREATE INDEX IF NOT EXISTS idx_shareholding_disclosure_date ON shareholding_pattern(disclosure_date);
 
+-- Institutional-attention breakdown -- docs/institutional_attention_feature.md.
+-- Parses the SAME XBRL filing shareholding_pattern.attachment_url already
+-- points to (confirmed live 2026-07-16: NSE's summary API only exposes the
+-- coarse promoter/public split, but the underlying XBRL filing has a full
+-- ~40-category SEBI Table III breakdown via the CategoryOfShareholdersAxis
+-- dimension) -- no new data source, just parsing deeper into one we already
+-- had. quarter_end_date/disclosure_date follow the exact same knowledge-
+-- timestamp discipline as shareholding_pattern (disclosure_date is NULL if
+-- genuinely unavailable, never guessed).
+--
+-- total_institutional_pct uses NSE's own reported InstitutionsDomesticMember
+-- + InstitutionsForeignMember aggregate values directly (confirmed live:
+-- InstitutionsDomesticMember's value exactly equals the sum of its own
+-- children, e.g. 0.2327 = MutualFunds(0.1464) + Banks(0.0014) +
+-- Insurance(0.0609) + AIF(0.0051) + ProvidentFunds(0.0169) +
+-- SovereignWealthDomestic(0.0019); same confirmed for InstitutionsForeignMember
+-- = FPI Category I + Category II) -- using NSE's own rollup avoids any risk
+-- of our own re-summation silently drifting from the official total if a
+-- category is missed or the taxonomy adds one.
+--
+-- Category-to-column mapping (~40 raw SEBI leaf categories -> 6 named
+-- columns): mutual_fund_pct=MutualFundsOrUTI; fii_fpi_pct=FPI Category I+II;
+-- financial_institution_pct=Banks+OtherFinancialInstitutions+NBFCs;
+-- insurance_pct=InsuranceCompanies; alternate_investment_fund_pct=
+-- AlternativeInvestmentFunds; everything else institutional (venture
+-- capital funds, sovereign wealth funds domestic/foreign, provident/pension
+-- funds, asset reconstruction companies, foreign venture capital investors,
+-- overseas depositories, and NSE's own OtherInstitutionsDomestic/Foreign
+-- catch-alls) rolls into other_institution_pct. raw_categories_json
+-- preserves literally all ~40 raw category:value pairs regardless, so this
+-- grouping choice is never a one-way door.
+CREATE TABLE IF NOT EXISTS shareholding_institutional_breakdown (
+    symbol                  TEXT NOT NULL,
+    quarter_end_date        TEXT NOT NULL,
+    disclosure_date         TEXT,   -- same knowledge-timestamp discipline as shareholding_pattern; NULL if genuinely unknown, never guessed
+    mutual_fund_pct         REAL,
+    fii_fpi_pct             REAL,
+    financial_institution_pct REAL,
+    insurance_pct           REAL,
+    alternate_investment_fund_pct REAL,
+    other_institution_pct   REAL,
+    total_institutional_pct REAL,   -- NSE's own InstitutionsDomestic + InstitutionsForeign aggregate, not a re-derived sum
+    raw_categories_json     TEXT,   -- full raw category:value breakdown (~40 categories) as reported
+    source                  TEXT NOT NULL,  -- 'NSE' or 'BSE'
+    fetched_at              TEXT NOT NULL,
+    PRIMARY KEY (symbol, quarter_end_date)
+);
+CREATE INDEX IF NOT EXISTS idx_inst_breakdown_symbol ON shareholding_institutional_breakdown(symbol);
+
 -- Market-wide risk/regime context, not stock-specific -- one row per
 -- trading day, joins to the training matrix on date alone. No
 -- point-in-time derivation needed here (unlike disclosure-based tables):
