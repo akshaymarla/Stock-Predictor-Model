@@ -17,7 +17,82 @@ just unwired.
 
 ---
 
-## PART A — Close known gaps
+## 0b. CRITICAL BLOCKER (2026-07-19) — `daily_prices` corruption, must be resolved before Part A or Part B results are trusted further
+
+**Do not proceed to Part B (or trust any prior Part A / model result) until
+this is fully remediated.** Discovered while building the Part B backtest
+(an absurd 867% single-fold average return led to this), but the root
+cause predates Part B entirely and affects everything downstream of
+`daily_prices`.
+
+**The bug**: `jugaad-data==0.33.1`'s own `_stock()` method has an inverted
+condition (`jugaad_data/nse/history.py:80`) that silently sends
+`series="ALL"` to NSE's API even when `fetch_daily_prices.py` correctly
+requests `series="EQ"`. This mixed non-equity instruments (mostly
+corporate bonds/NCDs sharing a symbol string with an equity, explaining
+why frequent bond issuers like `IFCI`, `PFC`, `NHPC`, `NTPC`, `RECLTD`
+were worst-hit) into what should have been pure equity price data —
+different price scale, much lower volume, silently blended in.
+
+**Scope, confirmed by direct scan**: 91 of 539 symbols (~17% of the
+tracked universe) affected, 4,508 anomalous price points, spanning
+2021-07-14 to 2026-06-23 (essentially the entire backfill history).
+Includes large, liquid, heavily-relied-on names: `HDFCBANK`, `WIPRO`,
+`KOTAKBANK`, `NESTLEIND`, `BAJFINANCE`, `DRREDDY`, `BRITANNIA` (25.8% of
+its own row count affected) among others.
+
+**Fix applied (forward-only)**: `fetch_symbol()` now filters to
+`series == "EQ"` using NSE's own per-row `CH_SERIES` field before
+returning — verified against `IFCI` (29 contaminated rows correctly
+dropped). This fixes all *future* fetches. It does NOT fix what's already
+sitting in the database.
+
+**Why every prior model result is now suspect, not just Part B**:
+`daily_prices` feeds momentum features (`return_5d/10d/20d`,
+`volatility_20d`, `volume_ratio_20d`) and `model_target_labels`
+(`stock_return_14d/30d`, `alpha_14d/30d`, `outperform_flag`) directly.
+Every baseline, LightGBM, SHAP, and calibration result produced anywhere
+in this project so far — including the institutional-neglect hypothesis
+test's "mixed/partial support" conclusion in
+`institutional_attention_feature.md` Section 8 — was computed on data
+where ~17% of the universe had corrupted momentum inputs and corrupted
+labels. **The methodology (walk-forward/embargo, isotonic-over-Platt,
+SHAP-over-default-importance) does not need to be rebuilt** — only
+re-run. But treat every specific number produced so far as "pending
+re-validation," not settled, until re-run on clean data — including
+results that seem intuitively plausible; a subtle version of this
+corruption (a bad row landing near the real price) would not have been
+visually obvious the way `BRITANNIA`'s 5000-vs-30 split was.
+
+**Remediation, in order — do not skip steps or reorder**:
+1. Add `fetched_at` and `source` audit columns to `daily_prices` (this
+   table was the one table in the project without them — exactly why
+   this bug's origin couldn't be traced by run. Close this gap
+   permanently while already doing a full re-backfill, not just for this
+   incident).
+2. Full re-backfill of `daily_prices` for the **entire ~539-symbol
+   universe**, not just the 91 flagged symbols — the `>50%` single-day
+   jump heuristic is a detection floor, not a completeness guarantee; a
+   contaminated row landing close to the real price wouldn't produce a
+   visible jump but would still be wrong. Reuse `backfill_prices.py`'s
+   existing checkpointed/resumable design — this is exactly the
+   long-running, interruptible job that infrastructure exists for.
+3. Recompute `avg_traded_value_20d` (depends on `daily_prices`) and
+   rebuild `model_target_labels` (depends on clean forward-looking
+   returns) from scratch — do not patch either incrementally.
+4. Re-run baselines → LightGBM → SHAP → calibration fresh. Compare
+   against the old numbers to see what actually changed, rather than
+   assuming the conclusions hold — the institutional-neglect result
+   specifically deserves this scrutiny since it's the project's founding
+   hypothesis test.
+5. Add an automated sanity check (the same `>50%` single-day-move
+   heuristic used to find this, logged/flagged on every nightly fetch) so
+   the next instance of this class of bug is caught in hours, not
+   discovered months later by a downstream symptom the way this one was.
+6. Only after 1-5 are complete: resume Part B.
+
+## PART A — Close known gaps (status below predates the 0b discovery — treat
+as informative history, not current ground truth, until re-run per 0b)
 
 ## 1. Wire in sector features (or confirm they're already built and just not feeding the model)
 
@@ -217,6 +292,11 @@ about achievable, cost-adjusted performance.
 
 ## 6. Build order
 
+0. **Section 0b (`daily_prices` remediation) — supersedes everything
+   below.** Do not start or continue Part A/B work until 0b's steps 1-5
+   are complete. Any Part A work done before 0b's fix (sector features,
+   catalyst detection, `fin_opm_pct`) should be re-checked once clean
+   data is in place — those findings predate the corruption discovery.
 1. Section 1 (sector features) and Section 3 (`fin_opm_pct`) can be done
    in parallel — independent of each other.
 2. Section 2 (catalyst detection) — independent, can also run in
@@ -230,6 +310,16 @@ about achievable, cost-adjusted performance.
 
 ## 7. Acceptance checklist
 
+- [ ] `daily_prices` has `fetched_at`/`source` audit columns added
+- [ ] Full ~539-symbol universe re-backfilled with the `series == "EQ"`
+      filter fix in place — not just the 91 originally-flagged symbols
+- [ ] `avg_traded_value_20d` recomputed and `model_target_labels` rebuilt
+      from scratch on clean data
+- [ ] Baselines, LightGBM, SHAP, and calibration re-run on clean data,
+      old vs. new numbers compared explicitly rather than assumed stable
+- [ ] Automated single-day-jump sanity check added to the nightly
+      pipeline, so this class of bug is caught going forward, not just
+      fixed retroactively
 - [x] Confirmed whether sector features exist and are wired into the
       feature matrix — CLOSED as a known data-availability limitation,
       not a bug: `sector_membership` has exactly 1 snapshot,

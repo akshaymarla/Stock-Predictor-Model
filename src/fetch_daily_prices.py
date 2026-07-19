@@ -9,6 +9,28 @@ installed jugaad-data==0.33.1 source directly, not assumed):
     DATE, SERIES, OPEN, HIGH, LOW, PREV. CLOSE, LTP, CLOSE, VWAP,
     VOLUME, VALUE, NO OF TRADES, DELIVERY QTY, DELIVERY %, SYMBOL
 
+CRITICAL BUG FOUND AND FIXED (2026-07-19, found while building models/backtest.py --
+see README changelog for the full investigation): jugaad-data==0.33.1's own
+`_stock()` method (jugaad_data/nse/history.py line 80) has an inverted
+condition -- `'series': series if series != "EQ" else "ALL"` -- meaning
+when THIS script (correctly) requests series="EQ", the library silently
+sends series="ALL" to NSE's actual API. For any symbol with OTHER
+NSE-listed instruments under the same symbol string (most commonly
+corporate bonds/NCDs -- confirmed live for IFCI, PFC, NHPC, M&MFIN, NTPC
+and others, mostly PSU/financial companies that are frequent bond
+issuers), this silently mixed non-equity-series rows (low-volume,
+wildly different price scale, e.g. bonds trading near face value
+~Rs 1000-1400) into what should have been pure equity data. Confirmed via
+direct inspection of the installed library's source, not assumed.
+`stock_df()`'s output DOES still include a `SERIES` column per-row
+(sourced from NSE's own CH_SERIES field) even though the REQUEST asked
+for everything -- so this is fixable entirely on our side by filtering
+the RESPONSE, without patching the library. fetch_symbol() below now
+does exactly that. 91 of 539 symbols in the existing `daily_prices` table
+were confirmed affected (4,508 anomalous rows, spanning the full
+2021-2026 backfill history) before this fix -- see README changelog for
+the full remediation.
+
 NOTE ON NETWORK ACCESS:
 This script talks to nseindia.com, which is NOT reachable from the sandbox
 this was built in (only PyPI/GitHub/npm etc. are whitelisted there). Confirmed
@@ -78,6 +100,7 @@ def fetch_symbol(symbol: str, from_date: datetime, to_date: datetime) -> pd.Data
     df = pd.DataFrame({
         "symbol": raw["SYMBOL"],
         "date": pd.to_datetime(raw["DATE"]).dt.strftime("%Y-%m-%d"),
+        "series": raw["SERIES"],
         "open": raw["OPEN"],
         "high": raw["HIGH"],
         "low": raw["LOW"],
@@ -87,6 +110,15 @@ def fetch_symbol(symbol: str, from_date: datetime, to_date: datetime) -> pd.Data
         "delivery_qty": raw["DELIVERY QTY"],
         "delivery_pct": raw["DELIVERY %"],
     })
+    # defensive filter for the jugaad-data "EQ"->"ALL" bug described above --
+    # NSE's response itself correctly labels each row's real series even
+    # though the library requested everything, so this is a reliable fix.
+    n_before = len(df)
+    df = df[df["series"] == "EQ"].drop(columns=["series"])
+    n_dropped = n_before - len(df)
+    if n_dropped:
+        print(f"    [{symbol}] dropped {n_dropped} non-EQ-series row(s) "
+              f"(jugaad-data series=\"ALL\" bug -- see module docstring)", file=sys.stderr)
     return df.sort_values("date")
 
 

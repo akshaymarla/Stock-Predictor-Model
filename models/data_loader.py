@@ -150,10 +150,16 @@ def _compute_momentum(prices: pd.DataFrame) -> pd.DataFrame:
     return prices
 
 
-def load_training_data(conn, symbols: list = None) -> pd.DataFrame:
+def load_feature_frame(conn, symbols: list = None) -> pd.DataFrame:
     """Returns one row per (symbol, date) with all momentum + context
-    features and both label horizons, restricted to rows where at least
-    one label horizon is available (model_target_labels' own domain)."""
+    features -- NOT restricted to rows with a label present, and NOT
+    surveillance-filtered. Split out from load_training_data() so callers
+    that need features independent of label availability (e.g.
+    models/backtest.py, which must score/hold a stock even through a
+    mid-hold delisting where model_target_labels has no complete forward
+    window) aren't forced through the label join. load_training_data()
+    below is now a thin wrapper: label join + surveillance filter on top
+    of this."""
     symbol_filter = ""
     params = []
     if symbols:
@@ -173,16 +179,31 @@ def load_training_data(conn, symbols: list = None) -> pd.DataFrame:
         conn, params=params,
     )
 
+    df = prices[["symbol", "date"] + MOMENTUM_COLUMNS].merge(context, on=["symbol", "date"], how="left")
+    df = df.merge(load_institutional_pctrank(conn), on=["symbol", "date"], how="left")
+    return df
+
+
+def load_training_data(conn, symbols: list = None) -> pd.DataFrame:
+    """Returns one row per (symbol, date) with all momentum + context
+    features and both label horizons, restricted to rows where at least
+    one label horizon is available (model_target_labels' own domain)."""
+    symbol_filter = ""
+    params = []
+    if symbols:
+        placeholders = ",".join("?" * len(symbols))
+        symbol_filter = f"AND symbol IN ({placeholders})"
+        params = list(symbols)
+
+    features = load_feature_frame(conn, symbols)
+
     labels = pd.read_sql_query(
         f"SELECT symbol, date, alpha_14d, outperform_14d_flag, "
         f"alpha_30d, outperform_30d_flag FROM model_target_labels WHERE 1=1 {symbol_filter}",
         conn, params=params,
     )
 
-    df = labels.merge(prices[["symbol", "date"] + MOMENTUM_COLUMNS], on=["symbol", "date"], how="left")
-    df = df.merge(context, on=["symbol", "date"], how="left")
-    df = df.merge(load_institutional_pctrank(conn), on=["symbol", "date"], how="left")
-
+    df = labels.merge(features, on=["symbol", "date"], how="left")
     df = apply_surveillance_exclusion(conn, df)
     return df
 

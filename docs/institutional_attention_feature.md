@@ -155,6 +155,18 @@ number:
    harness — this is the actual test of the hypothesis, don't skip
    straight to conclusions before this step.
 
+> ## ⚠ PENDING RE-VALIDATION (2026-07-19)
+> A `daily_prices` corruption bug affecting ~17% of the universe (see
+> `next_phase_plan.md` Section 0b) means the SHAP result below — the
+> project's founding hypothesis test — was computed on partly corrupted
+> momentum features and labels. **Treat "mixed/partial support" as
+> provisional, not final**, until re-run against a clean re-backfill.
+> This doesn't mean the conclusion is wrong — it may well hold up
+> unchanged — but it hasn't been confirmed on clean data yet, and this is
+> exactly the kind of result (the project's central thesis test) that
+> deserves the re-check rather than being grandfathered in because it
+> happened to be found first.
+
 ## 8. RESULT (2026-07-19) — hypothesis tested, confirmed via SHAP on real data
 
 The build in Sections 1-6 is complete and the hypothesis has now actually

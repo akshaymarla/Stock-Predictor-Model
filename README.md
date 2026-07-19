@@ -8,7 +8,7 @@ progress — check the bottom of this file for the latest status.
 
 | Table | Script | Status |
 |---|---|---|
-| `daily_prices` | `src/fetch_daily_prices.py` | Working (confirmed against live NSE data). ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py` (NSE's `stock_history` API has a real gap NSE's own bhavcopy archive doesn't) -- see changelog; 2 rare dates remain unfilled by design |
+| `daily_prices` | `src/fetch_daily_prices.py` | **CORRUPTION FOUND 2026-07-19, forward-fix applied, full re-backfill PENDING** -- 91/539 symbols (~17%) had non-equity instrument data (mostly bonds/NCDs) silently mixed into equity price history, caused by a `jugaad-data==0.33.1` library bug. `fetch_symbol()` now filters to `series=="EQ"`, verified fixed for new fetches -- but existing rows are NOT yet remediated. Treat all prior model results as provisional until `docs/next_phase_plan.md` Section 0b's remediation completes. Also: ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py` (NSE's `stock_history` API has a real gap NSE's own bhavcopy archive doesn't) -- see changelog; 2 rare dates remain unfilled by design |
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response). `category`/`sentiment` columns added 2026-07-19 and populated for real via `src/classify_announcements_by_subject.py` -- `subject` turned out to already be NSE's own SEBI Reg. 30 structured category tag, so this is a free deterministic mapping, not a classifier. 269,056 training-universe rows classified (2.0% positive, 1.0% negative, 97.0% neutral). Feature-level use retired from the model after SHAP re-check (see changelog) -- data itself remains real and available. `src/classify_announcements.py` (LLM path) built but unused, blocked on API credentials, not needed given the free result |
@@ -259,6 +259,61 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-19 (CRITICAL: daily_prices corruption found, root-caused,
+  forward-fixed -- full remediation pending)**: Found while building the
+  Part B portfolio backtest (`models/backtest.py`) -- an absurd single-fold
+  average return (867% for a 20-stock basket over one rebalance period)
+  traced to `BRITANNIA`'s price series alternating day-to-day between two
+  unrelated value clusters (~Rs 5,000-5,300, the real price, and ~Rs 29-30
+  with an order of magnitude lower volume, clearly a different
+  instrument).
+
+  **Scope, confirmed by a full-table scan** (any single-day jump >50%,
+  generous given NSE circuit limits are typically 5-20%): **91 of 539
+  symbols (~17% of the tracked universe) affected, 4,508 anomalous price
+  points, spanning 2021-07-14 to 2026-06-23** -- essentially the entire
+  backfill history, not a rare glitch. Includes large, liquid,
+  heavily-relied-on names: `HDFCBANK`, `WIPRO`, `KOTAKBANK`, `NESTLEIND`,
+  `BAJFINANCE`, `DRREDDY`, `BRITANNIA` (25.8% of its own 1,538 rows
+  affected). Worst-hit symbols were overwhelmingly PSU/financial
+  companies (`M&MFIN` 686 jumps, `IFCI` 478, `PFC` 410, `NHPC` 383, `NTPC`
+  379, `RECLTD` 293, `HUDCO` 243) -- a real pattern, not noise: these are
+  frequent corporate-bond/NCD issuers.
+
+  **Root cause, confirmed by direct inspection of the installed
+  `jugaad-data==0.33.1` library's source** (not assumed): `_stock()`
+  (`jugaad_data/nse/history.py` line 80) has an inverted condition --
+  `'series': series if series != "EQ" else "ALL"` -- meaning when
+  `fetch_daily_prices.py` correctly requests `series="EQ"`, the library
+  silently sends `series="ALL"` to NSE's actual API. Non-equity
+  instruments sharing a symbol string with the equity (bonds/NCDs, mostly)
+  get silently mixed in. `stock_df()`'s output DataFrame still labels each
+  row's real series correctly via NSE's own `CH_SERIES` field, even though
+  the request asked for everything -- so this was fixable entirely on our
+  side by filtering the response, without needing to patch the library.
+
+  **Fix applied (forward-only)**: `fetch_symbol()` in
+  `src/fetch_daily_prices.py` now filters to `series == "EQ"` before
+  returning, with a loud stderr log of how many rows got dropped per
+  symbol. Verified against `IFCI` (a known-bad case): 29 contaminated rows
+  correctly dropped, remaining data now internally consistent (~Rs 29-38
+  range throughout, no more spurious jumps to ~Rs 1000-2300).
+
+  **This fixes only future fetches.** The 91 symbols' existing corrupted
+  rows are still sitting in `daily_prices` as of this entry -- full
+  remediation (re-backfill, `model_target_labels` rebuild, re-run
+  baselines/LightGBM/SHAP/calibration) is scoped in
+  `docs/next_phase_plan.md` Section 0b and has NOT started yet.
+  **Every prior model result in this project (baselines, LightGBM, SHAP,
+  calibration -- including the institutional-neglect hypothesis test's
+  "mixed/partial support" conclusion) should be treated as provisional**
+  until re-run on clean data -- `daily_prices` feeds momentum features
+  (`return_5d/10d/20d`, `volatility_20d`, `volume_ratio_20d`) and
+  `model_target_labels` directly for all 91 affected symbols. Added
+  pending-re-validation warnings to `docs/model_build_spec.md` and
+  `docs/institutional_attention_feature.md` accordingly. Part B backtest
+  work is paused until Section 0b's remediation completes.
 
 - **2026-07-19 (catalyst detection: free path found, tried, retired)**:
   Revised `docs/next_phase_plan.md` Section 2 -- rather than defaulting

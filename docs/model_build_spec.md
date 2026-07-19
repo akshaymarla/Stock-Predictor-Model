@@ -1,5 +1,22 @@
 # Model Build Spec — Outperformance Probability Models (14d / 30d)
 
+> ## ⚠ PENDING RE-VALIDATION (2026-07-19) — READ BEFORE TRUSTING ANY RESULT IN THIS DOC
+> A `daily_prices` data-corruption bug was found (see `next_phase_plan.md`
+> Section 0b): ~17% of the tracked universe (91/539 symbols, including
+> large liquid names) had non-equity instrument data silently mixed into
+> equity price history across essentially the entire backfill period
+> (2021-2026), caused by an inverted condition in `jugaad-data==0.33.1`.
+> This corrupted momentum features (`return_5d/10d/20d`, `volatility_20d`,
+> `volume_ratio_20d`) and `model_target_labels` for those symbols.
+> **Every AUC, calibration, and SHAP result documented below was computed
+> on this corrupted data.** The methodology itself (walk-forward/embargo,
+> isotonic-over-Platt, SHAP-over-default-importance) remains sound and
+> does not need to change — but every specific number below is
+> provisional until re-run against a clean `daily_prices` re-backfill and
+> rebuilt `model_target_labels`, per `next_phase_plan.md` Section 0b's
+> remediation steps. Do not cite any AUC/calibration/SHAP figure in this
+> doc as a settled result until that re-run has happened.
+
 Handoff doc for Claude Code. Consolidates the model-design discussion from
 claude.ai into a concrete build spec. Read this alongside
 `macro_sector_shock_features.md` and the current `README.md`/`schema.sql`
