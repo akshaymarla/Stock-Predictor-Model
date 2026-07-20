@@ -155,7 +155,7 @@ def load_price_lookup(conn) -> dict:
     rebuilding a dates list on every one of the ~750k calls this backtest
     makes (3 N-values x 21 draws x 2 cost scenarios x ~30 held symbols x
     ~200 rebalance dates) -- a real, measured perf concern for a table
-    this size (687k daily_prices rows), not premature optimization."""
+    this size (~557k daily_prices rows), not premature optimization."""
     rows = conn.execute("SELECT symbol, date, close FROM daily_prices ORDER BY symbol, date").fetchall()
     by_symbol = {}
     for symbol, date, close in rows:

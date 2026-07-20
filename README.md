@@ -260,6 +260,72 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-20 (Part B: portfolio backtest run -- the actual "does this
+  make money" test)**: `models/backtest.py` run for real on clean data
+  (the corruption bug surfaced it before it could produce trustworthy
+  results, see 2026-07-19 entries -- this is the completion). Per
+  `next_phase_plan.md` Section 4: each of the 5 rolling-window folds
+  trains its own model, scores the eligible universe (`daily_prices`
+  presence + `surveillance_flags` exclusion -- see the `index_membership`
+  proxy caveat below) at each non-overlapping rebalance date, holds the
+  top-N, and compares against buy-and-hold Nifty and an equal-weight
+  random-N-stock baseline (averaged over 20 draws), at two real cost
+  scenarios (optimistic: zero brokerage, the modern discount-broker norm;
+  conservative: adds a modest brokerage + slippage allowance) using rates
+  sourced live from Zerodha/NSE.
+
+  **Result: genuinely mixed, same shape as every other check in this
+  project.** Small sample sizes throughout (10 rebalances/fold for 14d =
+  50 total across all folds, only 4/fold for 30d = 20 total) -- no
+  Sharpe-style ratio computed, per the spec's own explicit caution about
+  over-precision on a sample this small.
+  - **Model beats Nifty buy-and-hold in 2-4 of 5 folds** depending on N
+    (worse at N=10, better at N=30 -- more diversification helps).
+    Simple average cumulative return across folds: 14d model +15.9% vs.
+    Nifty +5.9%; 30d model +12.8% vs. Nifty +1.8%.
+  - **Model beats the random-N-stock baseline in 3-4 of 5 folds** -- real
+    but modest evidence of an edge beyond pure random picking. At the
+    30d horizon specifically, the AVERAGE-magnitude edge over random
+    nearly vanishes (+12.8% model vs. +12.5% random) even though the
+    model wins more folds by count -- a large single-fold outlier in
+    random's favor (fold 2: random +25.9-30.6% vs. model +7-13%) offsets
+    the model's wins elsewhere. Don't read "wins more folds" and
+    "matches on average magnitude" as contradictory -- both are true and
+    both matter.
+  - **Fold 3 (test window ~Oct 2024-Apr 2025) is a genuine down-market
+    period where model, random, AND Nifty all lose money** -- not a
+    model-specific failure. But within that fold, the **model's max
+    drawdown is notably worse than Nifty's** (-20.0% vs. -11.4% at 14d
+    N=20; -16.9% vs. -8.25% at 30d) -- a real, honest finding: this is a
+    pure ranking/stock-picking strategy with no defensive hedge, so it
+    can concentrate losses beyond the benchmark during a broad downturn
+    rather than being protected against one.
+  - **Costs matter but don't flip any fold's outcome** -- conservative
+    vs. optimistic costs cost a few percentage points per fold
+    (reasonable, expected degradation), never enough to change which
+    strategy wins.
+  - Zero mid-hold delistings/dropouts occurred across any tested period
+    (both horizons) -- reassuring for this specific window, though the
+    `index_membership` universe-proxy limitation (see below) still
+    applies more broadly.
+
+  **Known limitation, stated in every report**: the universe at each
+  rebalance date uses `daily_prices` presence as a proxy for
+  `index_membership` (which has no historical snapshots -- see the
+  2026-07-19 entry below), so it cannot detect a stock's removal from the
+  Nifty 500 for reasons other than it no longer trading at all. True
+  historical index reconstruction remains a separate, not-yet-started
+  task.
+
+  **Bottom line**: this does not read as "clearly makes money" or
+  "clearly doesn't" -- it reads as a real but modest edge, concentrated
+  more at higher N (more diversification) and more visible against Nifty
+  than against random stock-picking, with a real risk of amplified
+  drawdown in a genuine down market. Consistent with every other signal
+  check in this project (AUC ~0.48-0.58, SHAP showing real-but-weak
+  contribution from most features). Full per-fold, per-N, per-cost-
+  scenario numbers in `models/reports/backtest_report.json`.
+
 - **2026-07-20 (small consistency correction found resuming Part B)**:
   Before starting the portfolio backtest, re-verified `model_feature_matrix`
   and `model_target_labels` actually matched `daily_prices` as claimed

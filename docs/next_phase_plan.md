@@ -361,17 +361,25 @@ about achievable, cost-adjusted performance.
 - [x] `fin_opm_pct` null-rate confirmed for the earliest backfill window —
       genuine sourcing gap (2021: 0%, 2022: 25%, 2023+: ~80-85%), not a
       bug, no code fix applicable.
-- [ ] Portfolio backtest uses each fold's own trained model at each
+- [x] Portfolio backtest uses each fold's own trained model at each
       rebalance date — not one model applied across the whole test period
-- [ ] Universe at each rebalance date reflects the correct historical
-      `index_membership` snapshot, not today's constituent list
-- [ ] Mid-hold delisting/dropout has an explicit, documented handling rule
-- [ ] Transaction costs are parameterized and looked up fresh, not
-      silently assumed or hardcoded from possibly-stale figures
-- [ ] Backtest compared against BOTH buy-and-hold Nifty AND a
+- [x] Universe at each rebalance date — with an honest caveat: true
+      historical `index_membership` snapshots don't exist (see the
+      2026-07-19 entry), so this uses `daily_prices` presence as the
+      point-in-time proxy instead, explicitly documented as a real
+      limitation in every report rather than silently using today's
+      constituent list
+- [x] Mid-hold delisting/dropout has an explicit, documented handling
+      rule (mark at last available close, count and flag per fold) —
+      zero actually occurred in the tested windows, but the handling is
+      real and tested via `compute_forward_return()`
+- [x] Transaction costs are parameterized and looked up fresh (sourced
+      live from Zerodha/NSE 2026-07-19), not silently assumed or
+      hardcoded from possibly-stale figures
+- [x] Backtest compared against BOTH buy-and-hold Nifty AND a
       random-N-stock baseline from the same universe, every fold
-      individually reported
-- [ ] Multiple top-N values tested and reported, not a single arbitrary
-      choice
+      individually reported — see README changelog for the full result
+- [x] Multiple top-N values tested and reported (10/20/30), not a single
+      arbitrary choice
 - [x] README.md status table + changelog updated per CLAUDE.md's standing
       instruction
