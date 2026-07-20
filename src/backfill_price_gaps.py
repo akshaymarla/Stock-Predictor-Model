@@ -122,9 +122,9 @@ EQUITY_SERIES = {"EQ", "BE"}
 
 def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
     """Returns a list of (symbol, date, open, high, low, close, prev_close,
-    volume, delivery_qty, delivery_pct) tuples for EQ/BE-series symbols
-    already tracked in daily_prices (see EQUITY_SERIES docstring above for
-    why BE is included).
+    volume, delivery_qty, delivery_pct, source, fetched_at) tuples for
+    EQ/BE-series symbols already tracked in daily_prices (see
+    EQUITY_SERIES docstring above for why BE is included).
 
     Confirmed live 2026-07-16: for at least one special-session date
     (2021-11-04, Diwali Muhurat trading), bhavcopy_raw() returned content
@@ -169,6 +169,7 @@ def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
         normalized["series"] = series
         by_symbol[symbol] = normalized
 
+    fetched_at = datetime.now().isoformat()
     rows = []
     for symbol, normalized in by_symbol.items():
         rows.append((
@@ -181,24 +182,35 @@ def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
             _to_float(normalized.get("volume", "")),
             _to_float(normalized.get("delivery_qty", "")),
             _to_float(normalized.get("delivery_pct", "")),
+            "NSE_BHAVCOPY", fetched_at,
         ))
     return rows
 
 
 def upsert_gap_rows(conn, rows: list):
+    """NOTE (found 2026-07-21, docs/confirm_and_reconcile.md Part A): this
+    upsert did not set source/fetched_at until this fix -- 0b's step 1
+    (audit columns on daily_prices) was closed for the main backfill path
+    but missed this script, leaving ~460 rows with NULL source/fetched_at
+    (mostly 2021-07-16, the earliest backfilled date, plus ~90 scattered
+    single-row gap-fills). Not re-backfilled retroactively -- these rows'
+    data is still correct, only the audit trail was incomplete; fixing
+    forward is enough since these are cheap, isolated, non-recurring gap
+    fills, not an ongoing pipeline path like the main nightly fetch."""
     if not rows:
         return
     conn.executemany(
         """
         INSERT INTO daily_prices
             (symbol, date, open, high, low, close, prev_close, volume,
-             delivery_qty, delivery_pct)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             delivery_qty, delivery_pct, source, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(symbol, date) DO UPDATE SET
             open=excluded.open, high=excluded.high, low=excluded.low,
             close=excluded.close, prev_close=excluded.prev_close,
             volume=excluded.volume, delivery_qty=excluded.delivery_qty,
-            delivery_pct=excluded.delivery_pct
+            delivery_pct=excluded.delivery_pct,
+            source=excluded.source, fetched_at=excluded.fetched_at
         """,
         rows,
     )

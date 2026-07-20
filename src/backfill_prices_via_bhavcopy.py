@@ -65,10 +65,14 @@ def save_checkpoint(done: set):
     CHECKPOINT_PATH.write_text(json.dumps({"done": sorted(done)}))
 
 
-def upsert_rows(conn, rows: list, fetched_at: str):
+def upsert_rows(conn, rows: list):
+    """rows already carry (..., source, fetched_at) as of fetch_bhavcopy_rows()'s
+    2026-07-21 fix (docs/confirm_and_reconcile.md Part A) -- this used to
+    append its own (NSE_BHAVCOPY, fetched_at) tuple on top, which would now
+    double up the values and break the fixed-arity INSERT below. Don't
+    re-add them here."""
     if not rows:
         return
-    rows_with_audit = [r + ("NSE_BHAVCOPY", fetched_at) for r in rows]
     conn.executemany(
         """
         INSERT INTO daily_prices
@@ -82,7 +86,7 @@ def upsert_rows(conn, rows: list, fetched_at: str):
             delivery_pct=excluded.delivery_pct,
             source=excluded.source, fetched_at=excluded.fetched_at
         """,
-        rows_with_audit,
+        rows,
     )
     conn.commit()
 
@@ -128,7 +132,7 @@ def main():
         dt = datetime.strptime(day_str, "%Y-%m-%d").date()
         try:
             rows = fetch_bhavcopy_rows(arc, dt, known_symbols)
-            upsert_rows(conn, rows, datetime.now().isoformat())
+            upsert_rows(conn, rows)
             total_rows += len(rows)
             affected_symbols.update(r[0] for r in rows)
             done.add(day_str)

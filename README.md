@@ -8,7 +8,7 @@ progress — check the bottom of this file for the latest status.
 
 | Table | Script | Status |
 |---|---|---|
-| `daily_prices` | `src/fetch_daily_prices.py` (nightly), `src/backfill_prices_via_bhavcopy.py` (bulk) | **Corruption fully remediated 2026-07-19** -- 556,778 clean rows, verified via independent full-table scan (zero unexplained anomalies remaining, 74 residual jumps all confirmed genuine corporate actions). See changelog for the full investigation: root cause, the switch to a bhavcopy-based bulk backfill, and two further bugs found and fixed along the way (bogus non-trading-day rows, an over-strict EQ-only series filter). Automated single-day-jump sanity check now runs after every fetch. Also: ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py`; 2 rare dates remain unfilled by design |
+| `daily_prices` | `src/fetch_daily_prices.py` (nightly), `src/backfill_prices_via_bhavcopy.py` (bulk) | **Corruption fully remediated 2026-07-19** -- 556,800 clean rows (539/539 symbols, 2021-07-13 to 2026-07-16), verified via independent full-table scan (zero unexplained anomalies remaining, 74 residual jumps all confirmed genuine corporate actions) plus a fresh coverage re-check 2026-07-21 (docs/confirm_and_reconcile.md Part A) -- low-row-count symbols all trace to real 2024/2025 IPOs or delistings/mergers, not gaps. See changelog for the full investigation: root cause, the switch to a bhavcopy-based bulk backfill, and two further bugs found and fixed along the way (bogus non-trading-day rows, an over-strict EQ-only series filter). Automated single-day-jump sanity check (`check_price_jump_anomalies()`) confirmed wired into `run_nightly.sh`'s execution path via `fetch_daily_prices.py`'s `main()` -- `run_nightly.sh` itself is still run by hand, not on a cron schedule yet (a separate, deliberate decision, see the script's own header comment). Audit columns (`source`/`fetched_at`) confirmed 99.98% populated after a 2026-07-21 fix closed a gap in `backfill_price_gaps.py`'s upsert (it never set them) -- 91/556,800 rows (0.016%) still show NULL, isolated single symbol/date pairs not yet individually diagnosed, data itself unaffected (already covered by the anomaly scan). Also: ~300 fully-missing trading days found and fixed 2026-07-16 via `src/backfill_price_gaps.py`; 2 rare dates remain unfilled by design |
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response). `category`/`sentiment` columns added 2026-07-19 and populated for real via `src/classify_announcements_by_subject.py` -- `subject` turned out to already be NSE's own SEBI Reg. 30 structured category tag, so this is a free deterministic mapping, not a classifier. 269,056 training-universe rows classified (2.0% positive, 1.0% negative, 97.0% neutral). Feature-level use retired from the model after SHAP re-check (see changelog) -- data itself remains real and available. `src/classify_announcements.py` (LLM path) built but unused, blocked on API credentials, not needed given the free result |
@@ -86,7 +86,21 @@ actually a network issue:
   exactly, no code changes needed. `parse_csv()` and the idempotent upsert
   were tested end-to-end against the real file contents.
 
-- **`fetch_financial_results.py`**: completely re-architected 2026-07-14
+- **`fetch_financial_results.py`, provenance note (added 2026-07-21,
+  `docs/confirm_and_reconcile.md` Part B)**: screener.in (via vendored
+  `src/screenerScraper.py`) has been the **only** `financial_results`
+  data source this pipeline has ever actually built or run, confirmed by
+  reading the full git history — there is no `fetch_financial_results_legacy.py`,
+  no direct-from-NSE XBRL parsing path, and no prior README section
+  describing one, at any commit. A legacy-XBRL-financials task was
+  referenced as existing documentation to reconcile against, but no trace
+  of it was found anywhere in this repo — flagged directly rather than
+  fabricated a "historical" section for something that was never built
+  here. (Real, separate XBRL parsing *does* exist in this project —
+  `src/fetch_institutional_breakdown.py` parses `shareholding_pattern`'s
+  XBRL filing, a different table entirely, see its own changelog entries
+  for the taxonomy-era bugs found there — don't confuse the two.)
+  **Below is the actual history**: completely re-architected 2026-07-14
   around the vendored `src/screenerScraper.py` (screener.in scraper,
   github.com/BuildAlgos/screener-scraper) instead of a guessed NSE endpoint.
   **Key finding from reading the real library**: screener.in's data has no
@@ -260,6 +274,58 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-21 (`docs/confirm_and_reconcile.md` — confirm 0b's remaining steps, reconcile stale legacy-financials guidance)**:
+  Not new feature work — closing loose ends before building further on
+  top of an uncertain base, per the doc's own framing. Checked each item
+  directly rather than assumed carried-over status from 0c's focus:
+
+  **Part A**:
+  - `daily_prices` audit columns (`source`/`fetched_at`): present in
+    schema, but NOT fully populated — found `backfill_price_gaps.py`'s
+    `upsert_gap_rows()` never set them at all (only the main
+    `backfill_prices_via_bhavcopy.py` path did). This left 464 rows NULL,
+    373 of them the entirety of 2021-07-16 (the earliest date in
+    `macro_regime_indicators`' own covered range — should have been
+    covered by the main backfill, wasn't). Fixed `fetch_bhavcopy_rows()`
+    (shared by both scripts) to set `source`/`fetched_at` itself, updated
+    both callers' upserts accordingly (this required also fixing
+    `backfill_prices_via_bhavcopy.py`'s `upsert_rows()`, which would have
+    silently double-appended audit columns and broken the INSERT's fixed
+    arity on its next run — caught before it caused damage). Re-ran the
+    fix against the real bhavcopy source (not a fake backfilled
+    timestamp) for the 82 affected dates: 373-row 2021-07-16 gap fully
+    closed, plus 22 previously-fully-missing rows filled as a side
+    effect. 91 rows (0.016%) remain NULL — scattered single symbol/date
+    pairs, not yet individually diagnosed, data itself already verified
+    correct by the earlier anomaly scan. Documented as a small accepted
+    residual rather than chased further.
+  - Full-universe backfill: confirmed complete — 539/539 symbols,
+    2021-07-13 to 2026-07-16, low-row-count symbols all trace to real
+    2024/2025 IPOs (MEESHO, GROWW, PINELABS, EMMVEE) or delistings/mergers
+    (CADILAHC, ANGELBRKG), not gaps.
+  - Automated single-day-jump sanity check: confirmed wired in —
+    `check_price_jump_anomalies()` runs inside `fetch_daily_prices.py`'s
+    `main()`, which `run_nightly.sh` calls directly. `run_nightly.sh`
+    itself is still run by hand, not cron-scheduled — a separate,
+    already-documented deliberate choice, not part of what this check
+    needed.
+  - `working_predictor_base` → `master`: **not merged**. Branch is 24
+    commits ahead of `master`/`origin/master` (which are in sync with each
+    other). Status reported, not acted on — merging is a call for the
+    user to make, not something to do unprompted.
+
+  **Part B**: the "legacy XBRL financial-results parsing" guidance
+  referenced as existing README content to reconcile **does not exist
+  anywhere in this repo** — checked the full git history, not just
+  current file state. `financial_results` went directly from "guessed
+  NSE endpoint, unverified" (2026-07-13) to "re-architected around
+  screener.in" (2026-07-14) with no intermediate XBRL-direct-from-NSE
+  implementation ever built. Rather than fabricate a "mark as historical"
+  section for something that never existed here, flagged the discrepancy
+  directly and added a provenance note to the `fetch_financial_results.py`
+  section clarifying screener.in has been the only source, ever — see
+  that section above.
 
 - **2026-07-20 (Section 0c fully remediated: tie-break + staleness fixed, `model_feature_matrix` rebuilt, every downstream model/backtest/decision-layer re-run and diffed against the pre-fix numbers)**:
   Closes out the bug flagged in the entry directly below (real-financials
