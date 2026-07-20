@@ -23,6 +23,7 @@ progress — check the bottom of this file for the latest status.
 | `model_target_labels` | `src/compute_target_labels.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 547,965 rows across 539 symbols). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
 | `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
+| `models/shortlists/*` (not a DB table) | `src/weekly_shortlist.py` | Working, ran end-to-end 2026-07-20 -- production model (trained on all history minus a reserved calibration tail) scores today's eligible universe, ranks top-N, attaches real per-stock SHAP explanations. Machine + human-readable output, gitignored (per-run, not meant to survive rebuilds; compact archive summary in `models/reports/archive/` is what persists). See changelog for two bugs found and fixed during first real run |
 
 ## Setup
 
@@ -259,6 +260,86 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-20 (Part B of `docs/reports_archive_and_shortlist_spec.md`: `src/weekly_shortlist.py`)**:
+  Built the actual day-to-day deliverable this project currently exists
+  for -- confirmed with the user this pipeline feeds a weekly manual-
+  review screening step, not an unattended allocator, so a ranked
+  shortlist with real per-stock explanations is more directly useful
+  right now than further backtest/decision-layer refinement.
+
+  **Production model**: trained on ALL available labeled history, not a
+  walk-forward evaluation fold (a live run has no future to leak from) --
+  except the tail, reserved for isotonic calibration via
+  `splitting.add_calibration_split()` applied to one synthetic
+  all-history "fold", same function every other evaluation in this
+  project uses, same "never calibrate on data the model trained on" rule.
+
+  **Universe**: today's `index_membership` snapshot (2026-07-14, 500
+  symbols -- valid to use directly since, unlike the backtest's historical-
+  reconstruction problem, a live run only needs the current snapshot),
+  filtered by active `surveillance_flags` and a newly-added liquidity
+  floor (bottom decile of `avg_traded_value_20d` on the scoring date,
+  relative/percentile-based since no absolute threshold existed anywhere
+  in this pipeline before now -- confirmed directly while building the
+  institutional-attention feature 2026-07-19). Exclusion counts reported,
+  not silent.
+
+  **Explanations**: real per-stock `shap.TreeExplainer` values (not
+  aggregate importance) -- top-5 contributing features per stock rendered
+  as human-readable text with SHAP sign/magnitude attached.
+
+  **Regime flag**: reuses the exact `nifty50_dist_50dma_pct < 0` signature
+  found (Section 5, below) to precede the worst Part B backtest drawdown,
+  plus a VIX-percentile-vs-trailing-year check. Informational only --
+  doesn't filter the shortlist.
+
+  Dual output per horizon: `models/shortlists/shortlist_<horizon>_<date>.json`
+  (machine-readable) + `.md` (human-readable), both gitignored (per-run,
+  not meant to survive rebuilds -- the compact summary written to
+  `models/reports/archive/` via the standing `write_archive_summary()`
+  convention is what persists long-term).
+
+  **Two real bugs found and fixed during the first live run, not
+  assumed away**:
+  1. The scoring date was initially `MAX(date) FROM daily_prices` --
+     picked up a stray/partial fetch on 2026-07-16 (81 of 500 symbols,
+     source='NSE' not 'NSE_BHAVCOPY', NOT present in
+     `macro_regime_indicators`, this project's canonical trading
+     calendar) and silently dropped 410 symbols from the universe as
+     "no data". Fixed to require the scoring date be a confirmed trading
+     day (`date IN (SELECT date FROM macro_regime_indicators)`); the
+     script now also prints a NOTE if a later stray date exists in
+     `daily_prices`, flagged for investigation rather than silently
+     ignored every run. Real scoring date: 2026-07-15 (500/500 symbols).
+     **2026-07-16's stray 81-row fetch is still sitting in `daily_prices`
+     and hasn't been root-caused yet** -- worth investigating before the
+     next `weekly_shortlist.py` run if it recurs or grows.
+  2. `fin_sales`/`fin_net_profit`/`bs_total_assets`/`bs_borrowings`/
+     `cf_net_cash_flow` (sourced from screener.in, `source='SCREENER'`)
+     are natively in Rs Crores, not raw rupees -- the first explanation
+     draft divided by 1e7 a second time (correct for `avg_traded_value_20d`,
+     which genuinely is raw rupees, computed in this pipeline from
+     `daily_prices`), producing absurd values like "quarterly net profit:
+     Rs 32" for a real ~Rs 32 Cr figure. Verified against a known real
+     figure (BHARATFORG's actual quarterly net profit range) before
+     fixing, not just assumed. Separate `CRORE_FEATURES` vs
+     `RUPEE_FEATURES` formatting sets now used.
+
+  Also added a caveat string to any `fin_days_since_disclosure`
+  explanation over 400 days: this reflects `financial_results`'
+  known disclosure_date-matching gap (~52% coverage system-wide, per
+  `data_loader.py`'s docstring), not the company actually going silent --
+  confirmed by checking BHARATFORG directly (all its recent
+  `financial_results` rows have `disclosure_date IS NULL`, so
+  `assemble_feature_matrix.py`'s point-in-time lookup correctly falls
+  back to the last row with a *confirmed* disclosure date, which happens
+  to be old). Not a bug to fix here, just something that would otherwise
+  mislead the person doing the manual review this tool feeds.
+
+  Acceptance checklist in `docs/reports_archive_and_shortlist_spec.md`
+  Part B not yet formally checked off item-by-item -- worth a pass before
+  calling this fully done.
 
 - **2026-07-20 (Section 5: decision layer -- tested, not assumed)**:
   Before building this, investigated two open questions from the Part B

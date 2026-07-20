@@ -1,0 +1,306 @@
+{
+  "run_type": "backtest",
+  "run_date": "2026-07-20",
+  "git_commit": "0c20d52",
+  "notes": "backfilled 2026-07-20 from existing clean-data full report; universe proxy: daily_prices presence, not true historical index_membership",
+  "horizons": {
+    "14d": {
+      "folds": [
+        {
+          "fold": 1,
+          "test_start": "2023-08-01",
+          "test_end": "2024-02-09",
+          "n_rebalances": 10,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.727581467495213,
+              "model_optimistic_max_dd": -0.049426292828298635,
+              "model_optimistic_hit_rate": 0.8,
+              "random_optimistic_return": 0.3738337050678979,
+              "nifty_buyhold_return": 0.12587192877105258
+            },
+            "20": {
+              "model_optimistic_return": 0.4806399189923354,
+              "model_optimistic_max_dd": -0.04111507581309826,
+              "model_optimistic_hit_rate": 0.7,
+              "random_optimistic_return": 0.3306717681487208,
+              "nifty_buyhold_return": 0.12587192877105258
+            },
+            "30": {
+              "model_optimistic_return": 0.38311884189076495,
+              "model_optimistic_max_dd": -0.04142491687443485,
+              "model_optimistic_hit_rate": 0.7,
+              "random_optimistic_return": 0.36229216415885346,
+              "nifty_buyhold_return": 0.12587192877105258
+            }
+          }
+        },
+        {
+          "fold": 2,
+          "test_start": "2024-03-01",
+          "test_end": "2024-09-12",
+          "n_rebalances": 10,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.12011364613897424,
+              "model_optimistic_max_dd": -0.046126428762447796,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.2556263996872483,
+              "nifty_buyhold_return": 0.1640825919086788
+            },
+            "20": {
+              "model_optimistic_return": 0.19731980311302788,
+              "model_optimistic_max_dd": -0.031693354141672736,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.22573397840459974,
+              "nifty_buyhold_return": 0.1640825919086788
+            },
+            "30": {
+              "model_optimistic_return": 0.206010231188265,
+              "model_optimistic_max_dd": -0.041669715471293944,
+              "model_optimistic_hit_rate": 0.4,
+              "random_optimistic_return": 0.2333875986626588,
+              "nifty_buyhold_return": 0.1640825919086788
+            }
+          }
+        },
+        {
+          "fold": 3,
+          "test_start": "2024-10-04",
+          "test_end": "2025-04-16",
+          "n_rebalances": 10,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": -0.07603592170336682,
+              "model_optimistic_max_dd": -0.21908316900394512,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": -0.11636434179379651,
+              "nifty_buyhold_return": -0.027200115132762104
+            },
+            "20": {
+              "model_optimistic_return": -0.07736863031543328,
+              "model_optimistic_max_dd": -0.2002893634909603,
+              "model_optimistic_hit_rate": 0.6,
+              "random_optimistic_return": -0.12243914946711054,
+              "nifty_buyhold_return": -0.027200115132762104
+            },
+            "30": {
+              "model_optimistic_return": -0.07675452455105192,
+              "model_optimistic_max_dd": -0.21843642222459186,
+              "model_optimistic_hit_rate": 0.4,
+              "random_optimistic_return": -0.1382615793684827,
+              "nifty_buyhold_return": -0.027200115132762104
+            }
+          }
+        },
+        {
+          "fold": 4,
+          "test_start": "2025-05-09",
+          "test_end": "2025-11-17",
+          "n_rebalances": 10,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.039386953212837694,
+              "model_optimistic_max_dd": -0.08279513161043257,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.09904682964372857,
+              "nifty_buyhold_return": 0.09142577474175284
+            },
+            "20": {
+              "model_optimistic_return": 0.09098550364077984,
+              "model_optimistic_max_dd": -0.03354598199873398,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.10730272498405058,
+              "nifty_buyhold_return": 0.09142577474175284
+            },
+            "30": {
+              "model_optimistic_return": 0.07191253325902758,
+              "model_optimistic_max_dd": -0.059578934332109756,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.10503609109913614,
+              "nifty_buyhold_return": 0.09142577474175284
+            }
+          }
+        },
+        {
+          "fold": 5,
+          "test_start": "2025-12-08",
+          "test_end": "2026-06-22",
+          "n_rebalances": 10,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.031127899823065297,
+              "model_optimistic_max_dd": -0.16339905488908746,
+              "model_optimistic_hit_rate": 0.6,
+              "random_optimistic_return": -0.005867785330880837,
+              "nifty_buyhold_return": -0.058943281247893387
+            },
+            "20": {
+              "model_optimistic_return": 0.10531590941833313,
+              "model_optimistic_max_dd": -0.09444774062300537,
+              "model_optimistic_hit_rate": 0.9,
+              "random_optimistic_return": 0.053121828418699835,
+              "nifty_buyhold_return": -0.058943281247893387
+            },
+            "30": {
+              "model_optimistic_return": 0.13986444179431756,
+              "model_optimistic_max_dd": -0.08178375527711888,
+              "model_optimistic_hit_rate": 0.8,
+              "random_optimistic_return": 0.04509558763532029,
+              "nifty_buyhold_return": -0.058943281247893387
+            }
+          }
+        }
+      ]
+    },
+    "30d": {
+      "folds": [
+        {
+          "fold": 1,
+          "test_start": "2023-08-14",
+          "test_end": "2024-01-29",
+          "n_rebalances": 4,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.33022056658149657,
+              "model_optimistic_max_dd": -0.027454298819934702,
+              "model_optimistic_hit_rate": 0.75,
+              "random_optimistic_return": 0.3618670607698464,
+              "nifty_buyhold_return": 0.12842849461397354
+            },
+            "20": {
+              "model_optimistic_return": 0.4435477749411971,
+              "model_optimistic_max_dd": 0.0,
+              "model_optimistic_hit_rate": 1.0,
+              "random_optimistic_return": 0.42740437096787565,
+              "nifty_buyhold_return": 0.12842849461397354
+            },
+            "30": {
+              "model_optimistic_return": 0.491617091815685,
+              "model_optimistic_max_dd": 0.0,
+              "model_optimistic_hit_rate": 1.0,
+              "random_optimistic_return": 0.3926223035441989,
+              "nifty_buyhold_return": 0.12842849461397354
+            }
+          }
+        },
+        {
+          "fold": 2,
+          "test_start": "2024-03-12",
+          "test_end": "2024-08-28",
+          "n_rebalances": 4,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.08401190387247004,
+              "model_optimistic_max_dd": -0.03316555828445292,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.30600480953204356,
+              "nifty_buyhold_return": 0.11266492655255944
+            },
+            "20": {
+              "model_optimistic_return": 0.07194691797172426,
+              "model_optimistic_max_dd": -0.012401254758243784,
+              "model_optimistic_hit_rate": 0.25,
+              "random_optimistic_return": 0.2588962682593676,
+              "nifty_buyhold_return": 0.11266492655255944
+            },
+            "30": {
+              "model_optimistic_return": 0.12652352712890047,
+              "model_optimistic_max_dd": 0.0,
+              "model_optimistic_hit_rate": 0.25,
+              "random_optimistic_return": 0.28169875358544627,
+              "nifty_buyhold_return": 0.11266492655255944
+            }
+          }
+        },
+        {
+          "fold": 3,
+          "test_start": "2024-10-11",
+          "test_end": "2025-03-25",
+          "n_rebalances": 4,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": -0.17434939647367387,
+              "model_optimistic_max_dd": -0.18346751671436928,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": -0.17841041233510602,
+              "nifty_buyhold_return": -0.08250998928467701
+            },
+            "20": {
+              "model_optimistic_return": -0.16399678874770673,
+              "model_optimistic_max_dd": -0.16891886272926837,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": -0.1516337968311282,
+              "nifty_buyhold_return": -0.08250998928467701
+            },
+            "30": {
+              "model_optimistic_return": -0.1638656668958166,
+              "model_optimistic_max_dd": -0.1793129940494701,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": -0.16389906038179614,
+              "nifty_buyhold_return": -0.08250998928467701
+            }
+          }
+        },
+        {
+          "fold": 4,
+          "test_start": "2025-05-14",
+          "test_end": "2025-10-24",
+          "n_rebalances": 4,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.2257797466841709,
+              "model_optimistic_max_dd": 0.0,
+              "model_optimistic_hit_rate": 1.0,
+              "random_optimistic_return": 0.048904614837262494,
+              "nifty_buyhold_return": 0.03773275117667829
+            },
+            "20": {
+              "model_optimistic_return": 0.13557074725572726,
+              "model_optimistic_max_dd": -0.009218079299527357,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.08246592692369337,
+              "nifty_buyhold_return": 0.03773275117667829
+            },
+            "30": {
+              "model_optimistic_return": 0.1575257646455943,
+              "model_optimistic_max_dd": -0.0022411291107157475,
+              "model_optimistic_hit_rate": 0.5,
+              "random_optimistic_return": 0.06624660075930278,
+              "nifty_buyhold_return": 0.03773275117667829
+            }
+          }
+        },
+        {
+          "fold": 5,
+          "test_start": "2025-12-09",
+          "test_end": "2026-05-27",
+          "n_rebalances": 4,
+          "by_n": {
+            "10": {
+              "model_optimistic_return": 0.3019572993390063,
+              "model_optimistic_max_dd": 0.0,
+              "model_optimistic_hit_rate": 1.0,
+              "random_optimistic_return": 0.0013952194953033015,
+              "nifty_buyhold_return": -0.10513493797323104
+            },
+            "20": {
+              "model_optimistic_return": 0.1534417645156434,
+              "model_optimistic_max_dd": -0.030327602442855928,
+              "model_optimistic_hit_rate": 0.75,
+              "random_optimistic_return": 0.006840713269037124,
+              "nifty_buyhold_return": -0.10513493797323104
+            },
+            "30": {
+              "model_optimistic_return": 0.13416063774016185,
+              "model_optimistic_max_dd": -0.009805247469520606,
+              "model_optimistic_hit_rate": 1.0,
+              "random_optimistic_return": -0.010722865747268773,
+              "nifty_buyhold_return": -0.10513493797323104
+            }
+          }
+        }
+      ]
+    }
+  }
+}

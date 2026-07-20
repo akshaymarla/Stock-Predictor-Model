@@ -11,4 +11,16 @@ __pycache__/
 # not secrets, but a runtime artifact re-fetched daily -- not source code)
 src/tokens/
 models/artifacts/
-models/reports/
+
+# models/reports/ is gitignored -- full verbose reports are large/ephemeral --
+# EXCEPT models/reports/archive/, a small compact-summary exception so
+# analytical history survives rebuilds (docs/reports_archive_and_shortlist_spec.md Part A)
+models/reports/*
+!models/reports/archive/
+!models/reports/archive/**
+
+# models/shortlists/ -- weekly_shortlist.py's per-run output (dated JSON/MD
+# files, re-generated every run) -- same reasoning as models/reports/: the
+# compact archive summary (models/reports/archive/) is what's meant to
+# survive long-term, not every individual weekly run's full output.
+models/shortlists/

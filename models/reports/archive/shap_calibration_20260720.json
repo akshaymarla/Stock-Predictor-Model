@@ -1,0 +1,376 @@
+{
+  "run_type": "shap_calibration",
+  "run_date": "2026-07-20",
+  "git_commit": "0c20d52",
+  "notes": "backfilled 2026-07-20 from existing clean-data full report, not written live",
+  "horizons": {
+    "14d": {
+      "folds": [
+        {
+          "fold": 1,
+          "train_start": "2021-07-16",
+          "train_end": "2023-03-21",
+          "calib_start": "2023-04-17",
+          "calib_end": "2023-07-11",
+          "test_start": "2023-08-01",
+          "test_end": "2024-02-09",
+          "n_test": 58232,
+          "actual_rate": 0.5522564912762742,
+          "auc_raw": 0.5020433638444737,
+          "auc_platt": 0.4979566361555263,
+          "auc_isotonic": 0.5008012626566775,
+          "top_5_shap_features": [
+            [
+              "fin_days_since_disclosure",
+              0.22596603982697588
+            ],
+            [
+              "fin_sales",
+              0.13990542523459787
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.08794190969428109
+            ],
+            [
+              "sh_inst_mutual_fund_pct",
+              0.08198104475525894
+            ],
+            [
+              "india_vix_close",
+              0.07703060786708663
+            ]
+          ]
+        },
+        {
+          "fold": 2,
+          "train_start": "2022-02-18",
+          "train_end": "2023-10-25",
+          "calib_start": "2023-11-15",
+          "calib_end": "2024-02-09",
+          "test_start": "2024-03-01",
+          "test_end": "2024-09-12",
+          "n_test": 59646,
+          "actual_rate": 0.5224491164537437,
+          "auc_raw": 0.5313568046236373,
+          "auc_platt": 0.5313568046236373,
+          "auc_isotonic": 0.5308201810073321,
+          "top_5_shap_features": [
+            [
+              "india_vix_close",
+              0.17879754027339667
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.09992632110560411
+            ],
+            [
+              "avg_traded_value_20d",
+              0.08425585412164785
+            ],
+            [
+              "nifty50_return_10d",
+              0.06004626031970215
+            ],
+            [
+              "fin_days_since_disclosure",
+              0.05545870379771633
+            ]
+          ]
+        },
+        {
+          "fold": 3,
+          "train_start": "2022-09-26",
+          "train_end": "2024-05-28",
+          "calib_start": "2024-06-19",
+          "calib_end": "2024-09-12",
+          "test_start": "2024-10-04",
+          "test_end": "2025-04-16",
+          "n_test": 61868,
+          "actual_rate": 0.4427975690179091,
+          "auc_raw": 0.5250390778275962,
+          "auc_platt": 0.4749609221724039,
+          "auc_isotonic": 0.5103280830592232,
+          "top_5_shap_features": [
+            [
+              "india_vix_close",
+              0.20068903647426997
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.10568956722201628
+            ],
+            [
+              "return_5d",
+              0.08134733417331824
+            ],
+            [
+              "nifty50_return_5d",
+              0.07133806700080379
+            ],
+            [
+              "return_10d",
+              0.06682924781623707
+            ]
+          ]
+        },
+        {
+          "fold": 4,
+          "train_start": "2023-05-02",
+          "train_end": "2024-12-27",
+          "calib_start": "2025-01-17",
+          "calib_end": "2025-04-16",
+          "test_start": "2025-05-09",
+          "test_end": "2025-11-17",
+          "n_test": 63767,
+          "actual_rate": 0.453918170840717,
+          "auc_raw": 0.4877456208724083,
+          "auc_platt": 0.4877456208724083,
+          "auc_isotonic": 0.4882727450780232,
+          "top_5_shap_features": [
+            [
+              "india_vix_close",
+              0.13408063681273416
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.10415523694992161
+            ],
+            [
+              "nifty50_return_10d",
+              0.09193713127333165
+            ],
+            [
+              "fin_days_since_disclosure",
+              0.06641454365177119
+            ],
+            [
+              "avg_traded_value_20d",
+              0.06021575457866688
+            ]
+          ]
+        },
+        {
+          "fold": 5,
+          "train_start": "2023-11-30",
+          "train_end": "2025-07-29",
+          "calib_start": "2025-08-20",
+          "calib_end": "2025-11-17",
+          "test_start": "2025-12-08",
+          "test_end": "2026-06-22",
+          "n_test": 65964,
+          "actual_rate": 0.5476168819356012,
+          "auc_raw": 0.5617797692384983,
+          "auc_platt": 0.4382202307615018,
+          "auc_isotonic": 0.5037860508066077,
+          "top_5_shap_features": [
+            [
+              "nifty50_dist_50dma_pct",
+              0.210847557291062
+            ],
+            [
+              "india_vix_close",
+              0.1157546253290938
+            ],
+            [
+              "nifty50_return_10d",
+              0.062418467392303924
+            ],
+            [
+              "avg_traded_value_20d",
+              0.05836138455399785
+            ],
+            [
+              "delivery_pct",
+              0.05283099917362371
+            ]
+          ]
+        }
+      ]
+    },
+    "30d": {
+      "folds": [
+        {
+          "fold": 1,
+          "train_start": "2021-07-16",
+          "train_end": "2023-02-15",
+          "calib_start": "2023-04-03",
+          "calib_end": "2023-06-30",
+          "test_start": "2023-08-14",
+          "test_end": "2024-01-29",
+          "n_test": 50244,
+          "actual_rate": 0.5746158745322825,
+          "auc_raw": 0.4818876719943889,
+          "auc_platt": 0.518112328005611,
+          "auc_isotonic": 0.5009283872048444,
+          "top_5_shap_features": [
+            [
+              "fin_days_since_disclosure",
+              0.21912255844759043
+            ],
+            [
+              "india_vix_close",
+              0.18045132330685376
+            ],
+            [
+              "fin_eps",
+              0.1784111409447807
+            ],
+            [
+              "avg_traded_value_20d",
+              0.17068418566038981
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.12673673120356715
+            ]
+          ]
+        },
+        {
+          "fold": 2,
+          "train_start": "2022-02-16",
+          "train_end": "2023-09-15",
+          "calib_start": "2023-11-02",
+          "calib_end": "2024-01-29",
+          "test_start": "2024-03-12",
+          "test_end": "2024-08-28",
+          "n_test": 51393,
+          "actual_rate": 0.5395092716906972,
+          "auc_raw": 0.5252125315059873,
+          "auc_platt": 0.5252125315059873,
+          "auc_isotonic": 0.5248998851976966,
+          "top_5_shap_features": [
+            [
+              "india_vix_close",
+              0.21388556627912983
+            ],
+            [
+              "avg_traded_value_20d",
+              0.19227507332988383
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.12743293461628538
+            ],
+            [
+              "fin_eps",
+              0.09209181137000516
+            ],
+            [
+              "sh_inst_mutual_fund_pct",
+              0.08719556213436823
+            ]
+          ]
+        },
+        {
+          "fold": 3,
+          "train_start": "2022-09-20",
+          "train_end": "2024-04-18",
+          "calib_start": "2024-06-03",
+          "calib_end": "2024-08-28",
+          "test_start": "2024-10-11",
+          "test_end": "2025-03-25",
+          "n_test": 53371,
+          "actual_rate": 0.4256056659983886,
+          "auc_raw": 0.5474549452816211,
+          "auc_platt": 0.4525450547183788,
+          "auc_isotonic": 0.5008007685319175,
+          "top_5_shap_features": [
+            [
+              "india_vix_close",
+              0.20785306498457004
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.12504209670153538
+            ],
+            [
+              "fin_opm_pct",
+              0.094202187743049
+            ],
+            [
+              "fin_days_since_disclosure",
+              0.09407196232865472
+            ],
+            [
+              "return_20d",
+              0.08918798827932185
+            ]
+          ]
+        },
+        {
+          "fold": 4,
+          "train_start": "2023-04-21",
+          "train_end": "2024-11-13",
+          "calib_start": "2024-12-31",
+          "calib_end": "2025-03-25",
+          "test_start": "2025-05-14",
+          "test_end": "2025-10-24",
+          "n_test": 54919,
+          "actual_rate": 0.4433984595495184,
+          "auc_raw": 0.4799079578240552,
+          "auc_platt": 0.4799079578240552,
+          "auc_isotonic": 0.48849791933318065,
+          "top_5_shap_features": [
+            [
+              "india_vix_close",
+              0.15468452014869852
+            ],
+            [
+              "avg_traded_value_20d",
+              0.11973069954942939
+            ],
+            [
+              "nifty50_dist_50dma_pct",
+              0.09633124816224727
+            ],
+            [
+              "fin_opm_pct",
+              0.0936797771150783
+            ],
+            [
+              "fin_days_since_disclosure",
+              0.08249828359646454
+            ]
+          ]
+        },
+        {
+          "fold": 5,
+          "train_start": "2023-11-17",
+          "train_end": "2025-06-16",
+          "calib_start": "2025-07-29",
+          "calib_end": "2025-10-24",
+          "test_start": "2025-12-09",
+          "test_end": "2026-05-27",
+          "n_test": 56934,
+          "actual_rate": 0.5803913303122914,
+          "auc_raw": 0.524440527411249,
+          "auc_platt": 0.524440527411249,
+          "auc_isotonic": 0.5249606996853239,
+          "top_5_shap_features": [
+            [
+              "nifty50_dist_50dma_pct",
+              0.15275025106264783
+            ],
+            [
+              "india_vix_close",
+              0.12487407111038937
+            ],
+            [
+              "avg_traded_value_20d",
+              0.11510947487099181
+            ],
+            [
+              "return_20d",
+              0.09383202652268104
+            ],
+            [
+              "vix_change_5d_pts",
+              0.06729240083129512
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}

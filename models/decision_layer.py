@@ -63,6 +63,7 @@ from backtest import (  # noqa: E402
     rebalance_dates_for_fold, eligible_universe, compute_forward_return,
     net_return_with_costs, train_fold_model, max_drawdown,
 )
+from report_archive import write_archive_summary  # noqa: E402
 
 N = 20  # reference N throughout -- Section 4's middle-ground value, keeps the report readable
 REGIME_FEATURE = "nifty50_dist_50dma_pct"
@@ -248,6 +249,29 @@ def main():
     out_path = Path(__file__).resolve().parent / "reports" / "decision_layer_report.json"
     out_path.write_text(json.dumps(report, indent=2, default=str))
     print(f"\nSaved full report to {out_path}")
+
+    # Compounded equity curve + Calmar per variant, chained across all folds --
+    # per-fold simple averaging understates drawdown protection (a loss
+    # compounds against subsequent gains rather than averaging away cleanly,
+    # see README changelog 2026-07-20) -- the archive summary uses the
+    # correct lens by construction, not the misleading one.
+    archive_payload = {"horizons": {}}
+    for label, horizon_report in report["horizons"].items():
+        archive_payload["horizons"][label] = {"variants": {}}
+        for variant_name in variants:
+            equity = [1.0]
+            for fold_num in sorted(horizon_report.keys(), key=int):
+                for p in horizon_report[fold_num][variant_name]["periods"]:
+                    if p["scenario"] == "optimistic" and p["net_return"] is not None:
+                        equity.append(equity[-1] * (1 + p["net_return"]))
+            total_return = equity[-1] - 1.0
+            mdd = max_drawdown(equity)
+            calmar = total_return / abs(mdd) if mdd != 0 else None
+            archive_payload["horizons"][label]["variants"][variant_name] = {
+                "compounded_return": total_return, "max_drawdown": mdd, "calmar": calmar,
+            }
+    write_archive_summary("decision_layer", archive_payload,
+                           notes="compounded/Calmar chained sequentially across all 5 folds, optimistic costs, N=" + str(N))
 
 
 if __name__ == "__main__":

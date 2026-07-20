@@ -1,0 +1,144 @@
+{
+  "run_type": "weekly_shortlist",
+  "run_date": "2026-07-20",
+  "git_commit": "0c20d52",
+  "notes": "",
+  "scoring_date": "2026-07-15",
+  "universe": {
+    "index_membership_snapshot_date": "2026-07-14",
+    "total_in_snapshot": 500,
+    "excluded_surveillance": 11,
+    "excluded_no_recent_price_data": 0,
+    "excluded_illiquid_bottom_decile": 49,
+    "eligible": 440
+  },
+  "regime": {
+    "as_of_date": "2026-07-15",
+    "india_vix_close": 13.27,
+    "vix_percentile_1y": 0.6190476190476191,
+    "nifty50_dist_50dma_pct": 1.0403,
+    "nifty50_return_10d": 0.3026,
+    "flags": [],
+    "note": "informational only -- does not filter or block the shortlist"
+  },
+  "horizons": {
+    "14d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-03-04",
+      "calib_start": "2026-03-25",
+      "calib_end": "2026-06-24",
+      "calib_auc_raw": 0.5623683501901923,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "ACMESOLAR",
+          "calibrated_prob": 0.8478260869565217
+        },
+        {
+          "rank": 2,
+          "symbol": "SAMMAANCAP",
+          "calibrated_prob": 0.7987012987012987
+        },
+        {
+          "rank": 3,
+          "symbol": "BHARATFORG",
+          "calibrated_prob": 0.7987012987012987
+        },
+        {
+          "rank": 4,
+          "symbol": "SBIN",
+          "calibrated_prob": 0.7215686274509804
+        },
+        {
+          "rank": 5,
+          "symbol": "INDUSTOWER",
+          "calibrated_prob": 0.7215686274509804
+        },
+        {
+          "rank": 6,
+          "symbol": "CHOICEIN",
+          "calibrated_prob": 0.7215686274509804
+        },
+        {
+          "rank": 7,
+          "symbol": "FORTIS",
+          "calibrated_prob": 0.7215686274509804
+        },
+        {
+          "rank": 8,
+          "symbol": "MFSL",
+          "calibrated_prob": 0.6954954954954956
+        },
+        {
+          "rank": 9,
+          "symbol": "CCL",
+          "calibrated_prob": 0.6954954954954956
+        },
+        {
+          "rank": 10,
+          "symbol": "BLUEJET",
+          "calibrated_prob": 0.6954954954954956
+        }
+      ]
+    },
+    "30d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-01-16",
+      "calib_start": "2026-03-02",
+      "calib_end": "2026-06-02",
+      "calib_auc_raw": 0.5849876120630015,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "FORTIS",
+          "calibrated_prob": 0.7849223946784922
+        },
+        {
+          "rank": 2,
+          "symbol": "SBIN",
+          "calibrated_prob": 0.7849223946784922
+        },
+        {
+          "rank": 3,
+          "symbol": "URBANCO",
+          "calibrated_prob": 0.7434456928838952
+        },
+        {
+          "rank": 4,
+          "symbol": "MFSL",
+          "calibrated_prob": 0.7434456928838952
+        },
+        {
+          "rank": 5,
+          "symbol": "BHARATFORG",
+          "calibrated_prob": 0.7217806041335453
+        },
+        {
+          "rank": 6,
+          "symbol": "SOBHA",
+          "calibrated_prob": 0.7217806041335453
+        },
+        {
+          "rank": 7,
+          "symbol": "BLUESTARCO",
+          "calibrated_prob": 0.7217806041335453
+        },
+        {
+          "rank": 8,
+          "symbol": "CYIENT",
+          "calibrated_prob": 0.7209486166007903
+        },
+        {
+          "rank": 9,
+          "symbol": "HEROMOTOCO",
+          "calibrated_prob": 0.7209486166007903
+        },
+        {
+          "rank": 10,
+          "symbol": "UPL",
+          "calibrated_prob": 0.7209486166007903
+        }
+      ]
+    }
+  }
+}

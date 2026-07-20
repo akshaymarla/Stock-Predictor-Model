@@ -79,6 +79,7 @@ from db import get_conn  # noqa: E402
 from data_loader import ALL_FEATURE_COLUMNS, load_feature_frame  # noqa: E402
 from splitting import make_walk_forward_folds  # noqa: E402
 from train_lightgbm import LGB_PARAMS  # noqa: E402
+from report_archive import write_archive_summary  # noqa: E402
 
 HORIZONS = [
     {"label": "14d", "flag_col": "outperform_14d_flag", "embargo_days": 14, "hold_days": 14},
@@ -431,6 +432,28 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2, default=str))
     print(f"\nSaved full report to {out_path}")
+
+    archive_payload = {"horizons": {}}
+    for label, fold_results in report["horizons"].items():
+        archive_payload["horizons"][label] = {"folds": [
+            {
+                "fold": f["fold"], "test_start": f["test_start"], "test_end": f["test_end"],
+                "n_rebalances": f["n_rebalances"],
+                "by_n": {
+                    str(n): {
+                        "model_optimistic_return": f["summary"][n]["model_optimistic"]["cumulative_return"],
+                        "model_optimistic_max_dd": f["summary"][n]["model_optimistic"]["max_drawdown"],
+                        "model_optimistic_hit_rate": f["summary"][n]["model_optimistic"]["hit_rate"],
+                        "random_optimistic_return": f["summary"][n]["random_optimistic"]["cumulative_return"],
+                        "nifty_buyhold_return": f["summary"][n]["nifty_buyhold"]["cumulative_return"],
+                    }
+                    for n in N_VALUES
+                },
+            }
+            for f in fold_results
+        ]}
+    write_archive_summary("backtest", archive_payload,
+                           notes="universe proxy: daily_prices presence, not true historical index_membership -- see module docstring")
 
 
 if __name__ == "__main__":

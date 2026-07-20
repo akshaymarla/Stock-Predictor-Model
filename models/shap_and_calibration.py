@@ -57,6 +57,7 @@ from data_loader import ALL_FEATURE_COLUMNS, load_training_data  # noqa: E402
 from evaluate import calibration_curve, evaluate_predictions  # noqa: E402
 from splitting import add_calibration_split, make_walk_forward_folds  # noqa: E402
 from train_lightgbm import LGB_PARAMS  # noqa: E402
+from report_archive import write_archive_summary  # noqa: E402
 
 HORIZONS = [
     {"label": "14d", "flag_col": "outperform_14d_flag", "embargo_days": 14},
@@ -156,6 +157,23 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2))
     print(f"\nSaved full report to {out_path}")
+
+    archive_payload = {"horizons": {}}
+    for label, fold_results in report["horizons"].items():
+        archive_payload["horizons"][label] = {"folds": [
+            {
+                "fold": f["fold"],
+                "train_start": f["model_train_start"], "train_end": f["model_train_end"],
+                "calib_start": f["calib_start"], "calib_end": f["calib_end"],
+                "test_start": f["test_start"], "test_end": f["test_end"],
+                "n_test": f["n_test"],
+                "actual_rate": f["raw"]["actual_rate"],
+                "auc_raw": f["raw"]["auc"], "auc_platt": f["platt"]["auc"], "auc_isotonic": f["isotonic"]["auc"],
+                "top_5_shap_features": sorted(f["mean_abs_shap"].items(), key=lambda x: -x[1])[:5],
+            }
+            for f in fold_results
+        ]}
+    write_archive_summary("shap_calibration", archive_payload)
 
 
 if __name__ == "__main__":

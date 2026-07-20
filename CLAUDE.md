@@ -63,6 +63,14 @@ general:
   progress to `data/*.json` so an interrupted run resumes instead of
   restarting.
 - `data/*.db` and checkpoint files are gitignored — don't commit them.
+- **Every major model/backtest run (baseline, LightGBM, SHAP/calibration,
+  backtest) writes a compact JSON summary to `models/reports/archive/`**
+  (git-tracked exception to `models/reports/`'s gitignore) — see
+  `docs/reports_archive_and_shortlist_spec.md` Part A for the schema.
+  Full verbose reports stay gitignored and ephemeral; the archive is the
+  small, permanent record that lets a later question like "was this the
+  same period as an earlier finding" actually be answered instead of
+  hitting a dead end.
 
 ## What NOT to do without asking
 - Don't invent NSE/BSE API field names and present them as confirmed —

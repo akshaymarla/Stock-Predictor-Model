@@ -1,0 +1,66 @@
+{
+  "run_type": "decision_layer",
+  "run_date": "2026-07-20",
+  "git_commit": "0c20d52",
+  "notes": "backfilled 2026-07-20 from existing full report; compounded/Calmar chained across all 5 folds, optimistic costs, N=20",
+  "horizons": {
+    "14d": {
+      "variants": {
+        "baseline_equal_full": {
+          "compounded_return": 0.9723920227500551,
+          "max_drawdown": -0.21101470861530963,
+          "calmar": 4.608171767413495
+        },
+        "prob_weighted_full": {
+          "compounded_return": 0.9656558238874011,
+          "max_drawdown": -0.22653903064515685,
+          "calmar": 4.262646578549072
+        },
+        "min_prob_threshold": {
+          "compounded_return": 0.9615054652406367,
+          "max_drawdown": -0.21101470861530963,
+          "calmar": 4.556580304520427
+        },
+        "regime_half_exposure": {
+          "compounded_return": 0.871116485590101,
+          "max_drawdown": -0.12346222697363045,
+          "calmar": 7.055732809486399
+        },
+        "regime_zero_exposure": {
+          "compounded_return": 0.7576978749800334,
+          "max_drawdown": -0.051157066434411536,
+          "calmar": 14.811206501676121
+        }
+      }
+    },
+    "30d": {
+      "variants": {
+        "baseline_equal_full": {
+          "compounded_return": 0.6944246320726168,
+          "max_drawdown": -0.1775789574610496,
+          "calmar": 3.9105119322762825
+        },
+        "prob_weighted_full": {
+          "compounded_return": 0.7529463629007429,
+          "max_drawdown": -0.17751627630507869,
+          "calmar": 4.241562399645724
+        },
+        "min_prob_threshold": {
+          "compounded_return": 0.6944246320726168,
+          "max_drawdown": -0.1775789574610496,
+          "calmar": 3.9105119322762825
+        },
+        "regime_half_exposure": {
+          "compounded_return": 0.5889081552766908,
+          "max_drawdown": -0.09504384601255392,
+          "calmar": 6.1961734502926635
+        },
+        "regime_zero_exposure": {
+          "compounded_return": 0.4700989814145131,
+          "max_drawdown": -0.039266119498100466,
+          "calmar": 11.972127305252423
+        }
+      }
+    }
+  }
+}

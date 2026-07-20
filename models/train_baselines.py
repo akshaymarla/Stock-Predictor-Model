@@ -34,6 +34,7 @@ from db import get_conn  # noqa: E402
 from data_loader import MOMENTUM_COLUMNS, load_training_data  # noqa: E402
 from evaluate import calibration_curve, evaluate_predictions, format_fold_report  # noqa: E402
 from splitting import make_walk_forward_folds  # noqa: E402
+from report_archive import write_archive_summary  # noqa: E402
 
 HORIZONS = [
     {"label": "14d", "alpha_col": "alpha_14d", "flag_col": "outperform_14d_flag", "embargo_days": 14},
@@ -135,6 +136,22 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2))
     print(f"\nSaved full report to {out_path}")
+
+    archive_payload = {"horizons": {}}
+    for label, fold_results in report["horizons"].items():
+        archive_payload["horizons"][label] = {"folds": [
+            {
+                "fold": f["fold"],
+                "train_start": f["train_start"], "train_end": f["train_end"],
+                "test_start": f["test_start"], "test_end": f["test_end"],
+                "n_test": f["simple_logreg"]["n"],
+                "actual_rate": f["naive"]["actual_rate"],
+                "naive_predicted_prob": f["naive"]["predicted_prob"],
+                "auc_naive": f["naive"]["auc"], "auc_simple_logreg": f["simple_logreg"]["auc"],
+            }
+            for f in fold_results
+        ]}
+    write_archive_summary("baseline", archive_payload)
 
 
 if __name__ == "__main__":

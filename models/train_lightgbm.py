@@ -48,6 +48,7 @@ from db import get_conn  # noqa: E402
 from data_loader import ALL_FEATURE_COLUMNS, load_training_data  # noqa: E402
 from evaluate import calibration_curve, evaluate_predictions, format_fold_report  # noqa: E402
 from splitting import make_walk_forward_folds  # noqa: E402
+from report_archive import write_archive_summary  # noqa: E402
 
 HORIZONS = [
     {"label": "14d", "flag_col": "outperform_14d_flag", "embargo_days": 14},
@@ -137,6 +138,22 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2))
     print(f"\nSaved full report to {out_path}")
+
+    archive_payload = {"horizons": {}}
+    for label, fold_results in report["horizons"].items():
+        archive_payload["horizons"][label] = {"folds": [
+            {
+                "fold": f["fold"], "strategy": f["strategy"],
+                "train_start": f["train_start"], "train_end": f["train_end"],
+                "train_rows": f["train_rows"],
+                "n_test": f["n"], "actual_rate": f["actual_rate"], "auc": f["auc"],
+                "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+                "top_5_feature_importances": sorted(f["feature_importances"].items(), key=lambda x: -x[1])[:5],
+            }
+            for f in fold_results
+        ]}
+    write_archive_summary("lightgbm", archive_payload,
+                           notes="rolling_window_days: " + json.dumps(report["rolling_window_days"]))
 
 
 if __name__ == "__main__":
