@@ -135,20 +135,40 @@ def format_feature_value(name: str, value) -> str:
     return f"{value:.3g}"
 
 
-def explain_feature(name: str, value, shap_val: float) -> str:
+FIN_SCOPE_FEATURES = {"fin_sales", "fin_net_profit", "fin_opm_pct", "fin_eps"}
+
+
+def explain_feature(name: str, value, shap_val: float, fin_result_type: str = None) -> str:
     label = FEATURE_LABELS.get(name, name)
     val_str = format_feature_value(name, value)
     direction = "supporting" if shap_val > 0 else "weighing against"
     caveat = ""
     if name == "fin_days_since_disclosure" and value is not None and not pd.isna(value) and value > 400:
-        # A large value more often reflects a disclosure_date-matching gap
-        # (financial_results/corporate_announcements join, ~52% coverage --
-        # see data_loader.py) than the company actually going quiet for
-        # that long -- assemble_feature_matrix.py's point-in-time lookup
-        # only trusts rows with a confirmed disclosure_date, so an
-        # unmatched recent quarter falls back to the last confirmed one.
-        caveat = " [likely a disclosure_date-matching gap, not a real reporting silence -- verify manually]"
-    return f"{label}: {val_str} ({direction}, SHAP={shap_val:+.4f}){caveat}"
+        # Confirmed 2026-07-20 (see README changelog): NOT just "this
+        # quarter's disclosure wasn't matched yet" -- for a meaningful slice
+        # of the universe (127/498 symbols >180d stale, 46/498 with zero
+        # confirmed disclosure ever, checked directly), the single
+        # confirmed disclosure_date a symbol has can be PERMANENTLY stuck
+        # years in the past (e.g. FORTIS/BHARATFORG: last confirmed
+        # disclosure is from mid-2023) while multiple real, more recent
+        # quarters sit in financial_results with disclosure_date=NULL --
+        # this isn't noise that improves next week, it's a standing gap for
+        # that symbol until the underlying corporate_announcements-matching
+        # is fixed. Treat every fin_*/bs_*/cf_*/ratio_* figure on this
+        # stock as potentially outdated, not just "less fresh."
+        caveat = " [STALE: this symbol's fundamentals may be frozen years in the past -- verify all financial figures below against a primary source before trusting them]"
+    scope = ""
+    if name in FIN_SCOPE_FEATURES and fin_result_type:
+        # assemble_feature_matrix.py picks whichever of STANDALONE/
+        # CONSOLIDATED happens to sort last among same-disclosure_date rows
+        # (confirmed 2026-07-20: 89% of confirmed-disclosure rows have both
+        # scopes filed on the same date, and the tie-break has no explicit
+        # preference -- NOT a genuine "most recent" choice despite the
+        # schema comment's wording). Surfaced here so the scope is at least
+        # visible, not silently ambiguous -- does not fix the underlying
+        # non-determinism.
+        scope = f" [{fin_result_type.lower()}]"
+    return f"{label}{scope}: {val_str} ({direction}, SHAP={shap_val:+.4f}){caveat}"
 
 
 def load_universe(conn, scoring_date: str) -> tuple:
@@ -274,15 +294,29 @@ def build_shortlist(conn, feature_df, label_df, horizon, eligible_symbols, scori
     explainer = shap.TreeExplainer(clf)
     shap_values = explainer.shap_values(ranked[ALL_FEATURE_COLUMNS])
 
+    # fin_result_type isn't a model feature (ALL_FEATURE_COLUMNS deliberately
+    # excludes it -- see data_loader.py), just display metadata for the
+    # standalone/consolidated label on fin_* explanation lines (see
+    # explain_feature() -- assemble_feature_matrix.py's choice between the
+    # two is an undocumented tie-break, not a real preference, confirmed
+    # 2026-07-20).
+    result_type_lookup = dict(pd.read_sql_query(
+        "SELECT symbol, fin_result_type FROM model_feature_matrix WHERE date = ? AND symbol IN ({})".format(
+            ",".join("?" * len(ranked))),
+        conn, params=[scoring_date] + ranked["symbol"].tolist(),
+    ).values)
+
     shortlist = []
     for i, row in ranked.iterrows():
         sv = shap_values[i]
         contributions = sorted(zip(ALL_FEATURE_COLUMNS, sv, row[ALL_FEATURE_COLUMNS].values),
                                 key=lambda t: -abs(t[1]))[:5]
+        fin_result_type = result_type_lookup.get(row["symbol"])
         shortlist.append({
             "rank": i + 1, "symbol": row["symbol"],
             "raw_prob": float(row["raw_prob"]), "calibrated_prob": float(row["calibrated_prob"]),
-            "top_5_explanations": [explain_feature(name, val, shap_val) for name, shap_val, val in contributions],
+            "top_5_explanations": [explain_feature(name, val, shap_val, fin_result_type)
+                                    for name, shap_val, val in contributions],
             "top_5_raw": [{"feature": name, "shap_value": float(shap_val), "value": None if pd.isna(val) else float(val)}
                           for name, shap_val, val in contributions],
         })

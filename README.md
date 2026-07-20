@@ -12,7 +12,7 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response). `category`/`sentiment` columns added 2026-07-19 and populated for real via `src/classify_announcements_by_subject.py` -- `subject` turned out to already be NSE's own SEBI Reg. 30 structured category tag, so this is a free deterministic mapping, not a classifier. 269,056 training-universe rows classified (2.0% positive, 1.0% negative, 97.0% neutral). Feature-level use retired from the model after SHAP re-check (see changelog) -- data itself remains real and available. `src/classify_announcements.py` (LLM path) built but unused, blocked on API credentials, not needed given the free result |
-| `financial_results` | `src/fetch_financial_results.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 12,039 rows) — quarterly only; alias-based mapping for company-template variance; disclosure_date confirmed for 48.6%, rest captured with disclosure_date=NULL (see below) |
+| `financial_results` | `src/fetch_financial_results.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 12,039 rows) — quarterly only; alias-based mapping for company-template variance; disclosure_date confirmed for 48.6%, rest captured with disclosure_date=NULL (see below). **Two real data-quality issues found 2026-07-20** while verifying `weekly_shortlist.py` output against real financials — see changelog: (1) for 127/498 symbols the latest CONFIRMED disclosure_date is >180 days stale (46/498 have none at all), sometimes stuck years in the past (e.g. FORTIS/BHARATFORG last confirmed 2023) while real, more recent quarters sit unmatched with disclosure_date=NULL; (2) STANDALONE vs CONSOLIDATED selection in `assemble_feature_matrix.py` is an undocumented tie-break (89% of confirmed-disclosure rows have both scopes filed on the same date, no explicit preference), not the "whichever was most recent" the schema comment implies |
 | `balance_sheet` | `src/fetch_balance_sheet.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 5,057 rows); disclosure_date confirmed for 30.7% (mostly annual-cadence reporting, see below) |
 | `cash_flow` | `src/fetch_cash_flow.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 5,024 rows); disclosure_date confirmed for 30.9% |
 | `ratios` | `src/fetch_ratios.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 4,982 rows); disclosure_date confirmed for 31.2% |
@@ -21,7 +21,7 @@ progress — check the bottom of this file for the latest status.
 | `sector_membership` | `src/fetch_sector_membership.py` | Working (confirmed live 2026-07-16 -- all 15 sector constituent CSVs resolved, 249 rows, spot-checked against real symbols e.g. HDFCBANK correctly in Bank+Financial Services+Private Bank, RELIANCE in Energy+Infrastructure+Oil & Gas). Current-snapshot only, same caveat as `index_membership` |
 | `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
 | `model_target_labels` | `src/compute_target_labels.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 547,965 rows across 539 symbols). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
-| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog |
+| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog. **`most_recent_as_of()`'s STANDALONE/CONSOLIDATED tie-break is undocumented, not a deliberate choice** (found 2026-07-20, see `financial_results` row above and changelog) -- affects `fin_sales`/`fin_net_profit`/`fin_opm_pct`/`fin_eps` for the ~89% of confirmed-disclosure rows where both scopes were filed on the same date, across the FULL training history, not just current scoring. Not yet fixed -- needs a scope decision before touching (see changelog) |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 | `models/shortlists/*` (not a DB table) | `src/weekly_shortlist.py` | Working, ran end-to-end 2026-07-20 -- production model (trained on all history minus a reserved calibration tail) scores today's eligible universe, ranks top-N, attaches real per-stock SHAP explanations. Machine + human-readable output, gitignored (per-run, not meant to survive rebuilds; compact archive summary in `models/reports/archive/` is what persists). See changelog for two bugs found and fixed during first real run |
 
@@ -260,6 +260,75 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-20 (real-financials verification on the first live `weekly_shortlist.py` output -- found a systemic bug, not fixed yet, flagging for a scope decision)**:
+  User independently spot-checked shortlist output against real, current
+  financials (SBIN, NTPC, Tata Steel, Hero MotoCorp, Swiggy, ABFRL, Urban
+  Company all checked out) and found FORTIS's `fin_net_profit` (Rs 13 Cr)
+  didn't match Fortis Healthcare's real, well-documented Q4 FY26
+  consolidated net profit (Rs 271 Cr) -- a ~20x gap. Investigated directly
+  rather than assuming standalone-vs-consolidated scope explained it:
+
+  **What FORTIS's Rs 13 Cr actually is**: neither the real Q4 FY26
+  standalone (Rs 25 Cr) nor consolidated (Rs 271 Cr) figure -- both exist
+  in `financial_results` with `disclosure_date=NULL`. The ONLY row for
+  FORTIS with a confirmed `disclosure_date` is Q1 FY24 (period ending
+  2023-06-01, disclosed 2023-08-04), STANDALONE variant (sales 289,
+  net_profit 13) -- `assemble_feature_matrix.py`'s point-in-time lookup
+  correctly only trusts confirmed-disclosure rows, so it's frozen on this
+  one, 3-year-old quarter. Not a rounding/scope issue -- a real staleness
+  bug. Confirmed the same pattern independently on BHARATFORG (last
+  confirmed disclosure also 2023).
+
+  **How widespread**: checked the whole universe directly, not just these
+  two names. 46/498 symbols have zero confirmed-disclosure rows ever;
+  127/498 have their latest confirmed disclosure >180 days stale (some
+  strings of the same "1004-1096 days, stuck in 2023" pattern:
+  BALRAMCHIN, CONCORDBIO, HBLENGINE, HEROMOTOCO, KIRLOSENG, MMTC, SCI,
+  JUBLFOOD among the worst). 325/498 are reasonably fresh (<=180 days).
+  This is a real, standing gap for the affected third of the universe,
+  not noise that resolves itself next week -- traces back to
+  `corporate_announcements`-to-`financial_results` disclosure matching
+  failing for these symbols' recent quarters specifically, a deeper issue
+  than the existing "~52% coverage" framing conveyed.
+
+  **A second, separate bug found while investigating**: for FORTIS and
+  BHARATFORG, the one confirmed-disclosure row available has BOTH a
+  STANDALONE and CONSOLIDATED variant filed on the same `disclosure_date`
+  (real filings always report both together) -- `most_recent_as_of()` in
+  `assemble_feature_matrix.py` (`bisect_right` on disclosure_date, no
+  secondary sort key) picks whichever sorts last among the tie, which is
+  an artifact of SQL row-fetch order, not a deliberate "most recent"
+  choice despite `schema.sql`'s comment wording it that way. Checked how
+  common this collision is: **89% (2762/3102) of all confirmed-disclosure
+  (symbol, date) groups have both scopes present** -- meaning
+  `fin_sales`/`fin_net_profit`/`fin_opm_pct`/`fin_eps` have been an
+  effectively arbitrary, undocumented mix of standalone/consolidated
+  figures across most of the training history the model was built on,
+  not just this week's scoring row. This predates today's session --
+  found while verifying output, not introduced by it.
+
+  **What was fixed today (`src/weekly_shortlist.py` only, presentation
+  layer, no training data touched)**: every `fin_sales`/`fin_net_profit`/
+  `fin_opm_pct`/`fin_eps` explanation line now shows `[standalone]` or
+  `[consolidated]` explicitly (previously silently ambiguous). Any
+  `fin_days_since_disclosure` over 400 days now carries a strengthened
+  caveat naming the specific risk (fundamentals may be frozen years in
+  the past, not just "slightly stale") rather than the earlier, softer
+  "disclosure-matching gap" wording.
+
+  **What was NOT fixed, deliberately**: the underlying STANDALONE/
+  CONSOLIDATED tie-break non-determinism and the disclosure-matching
+  staleness for the affected third of the universe. Both live in
+  `assemble_feature_matrix.py`/`fetch_financial_results.py`, feed
+  `model_feature_matrix` (and therefore every trained model, backtest,
+  and decision-layer result already treated as findings this session),
+  and fixing either means reassembling `model_feature_matrix` and
+  probably retraining/re-evaluating everything downstream -- too large a
+  scope change to make unilaterally on the way to shipping a shortlist
+  script. Flagging for a decision on how to proceed (e.g. prefer
+  CONSOLIDATED when both exist, since that's what's typically quoted in
+  news coverage the user would cross-check against) rather than guessing.
 
 - **2026-07-20 (Part B of `docs/reports_archive_and_shortlist_spec.md`: `src/weekly_shortlist.py`)**:
   Built the actual day-to-day deliverable this project currently exists
