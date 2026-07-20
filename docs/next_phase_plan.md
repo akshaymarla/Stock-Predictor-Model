@@ -312,6 +312,25 @@ layer on top:
   this explicitly against the same fold/backtest framework, not by
   assumption.
 
+  **RESULT (2026-07-20)**: tested via `models/decision_layer.py`. A
+  first look using simple per-fold arithmetic averaging suggested exposure
+  scaling reduces mean return for the drawdown protection -- a real but
+  ordinary trade-off. **Independent review caught that this was the wrong
+  lens**: arithmetic averaging understates drawdown protection because a
+  large loss compounds against subsequent gains rather than averaging
+  away cleanly. Chaining all 5 folds into one sequential compounded
+  equity curve and computing Calmar ratio (compounded return / max
+  drawdown) instead: 14d Calmar goes from 4.61 (baseline) to 7.06 (half
+  exposure) to 14.81 (zero exposure on negative regime); 30d from 3.91 to
+  6.20 to 11.97. On a risk-adjusted, compounded basis this is not a
+  marginal trade -- it's a 3x+ improvement in return-per-unit-of-drawdown,
+  even though absolute compounded return is lower (14d: +97.2% baseline
+  vs. +75.8% at zero exposure). See README changelog for the full table
+  and the corrected write-up. Which of these to actually deploy remains a
+  real, undecided choice -- it depends on what the eventual use case
+  weighs more, average outcome or worst-case outcome, not something to
+  default silently.
+
 This section is explicitly downstream of Section 4 — don't design the
 decision layer in a vacuum before seeing what the backtest actually shows
 about achievable, cost-adjusted performance.

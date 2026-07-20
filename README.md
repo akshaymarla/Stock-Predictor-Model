@@ -288,25 +288,65 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   above:
   - **Regime-based exposure scaling** (reduce total exposure when
     `nifty50_dist_50dma_pct` < 0 at the rebalance date): works exactly as
-    designed, with a real cost, not a free lunch. In fold 3 specifically,
-    halves-to-eliminates the loss and drawdown (14d: -7.7%/-20.0% dd ->
-    -3.8%/-10.6% dd at half exposure, -0.25%/-0.25% dd at zero exposure;
-    30d: -16.4%/-16.9% dd -> -8.3%/-8.6% dd -> 0%/0% dd). But in fold 1
-    (a strong up-market fold), it gives up real upside (14d: +48.1% ->
-    +39.6% / +31.3%; 30d: +44.4% -> +35.3% / +26.2%). **On simple average
-    across all 5 folds, exposure scaling reduces mean return** (14d:
-    15.9% -> 14.3% -> 12.5%; 30d: 12.8% -> 10.6% -> 8.5%) while
-    meaningfully compressing the worst-case outcome -- a genuine
-    risk-tolerance trade-off, not something to bake in silently as a
-    strict improvement.
+    designed, with a real cost -- but the cost is smaller than a first,
+    per-fold-simple-average look suggested, and the benefit is bigger.
+    **Correction after independent review (2026-07-20): simple
+    per-fold arithmetic averaging understates drawdown protection,
+    because a large loss doesn't average away cleanly -- it compounds.**
+    Chaining all 5 folds into one sequential, compounded equity curve
+    (the way capital would actually experience these folds back to back)
+    and computing Calmar ratio (compounded return / max drawdown) tells
+    a meaningfully different story than the per-fold averages did:
+    | metric | baseline | half-exposure | zero-exposure |
+    |---|---|---|---|
+    | 14d compounded return | +97.2% | +87.1% | +75.8% |
+    | 14d max drawdown | -21.1% | -12.4% | -5.1% |
+    | 14d Calmar (return/\|dd\|) | 4.61 | 7.06 | **14.81** |
+    | 30d compounded return | +69.4% | +58.9% | +47.0% |
+    | 30d max drawdown | -17.8% | -9.5% | -3.9% |
+    | 30d Calmar (return/\|dd\|) | 3.91 | 6.20 | **11.97** |
+
+    On a risk-adjusted basis, regime scaling is not a marginal trade-off
+    -- it's a 3x+ improvement in Calmar ratio, even though absolute
+    compounded return is lower. Whether that trade (lower total return,
+    much better return-per-unit-of-drawdown-risk) is the right call still
+    depends on the use case (see "which strategy to deploy" below) -- but
+    it is a materially more favorable trade than the original per-fold
+    simple-average framing suggested. In fold 3 specifically, drawdown
+    goes from -20.0% (14d) / -16.9% (30d) at baseline to -10.6% / -8.6%
+    at half exposure to -0.25% / 0% at zero exposure.
   - **Probability-weighted position sizing**: mixed, mostly small
     effects either direction. One standout: 30d fold 5 improved on BOTH
     return (+15.3% -> +19.8%) and drawdown (-3.0% -> -0.4%)
     simultaneously. Not a dominant strategy, but not nothing.
-  - **Minimum probability threshold (0.5)**: essentially a null result --
-    rarely bound at all, since the model's own top-N picks were already
-    above 0.5 in nearly every period tested. Honest finding, not chased
-    further with a higher threshold value given time constraints.
+  - **Minimum probability threshold (0.5)**: essentially a null result.
+    Verified directly against the raw (uncalibrated) prediction
+    distribution: 43-69% of raw predictions across all 5 folds/both
+    horizons fall in [0.4, 0.6) (vs. ~20% under a uniform distribution) --
+    a real concentration, but a threshold placed at 0.5 sits inside that
+    dense band rather than cutting into it, so it rarely excludes a
+    stock that already made the top-N cut. Note: this is NOT the same
+    finding as isotonic's ~99% single-bucket collapse documented
+    elsewhere for fold 5 specifically (a calibration-slice-driven
+    near-random-AUC artifact, collapsed into [0.3,0.4) on ISOTONIC
+    output) -- that's a different, narrower phenomenon on a different
+    (calibrated, not raw) set of numbers; conflating the two would
+    overstate how extreme the raw clustering actually is. Same underlying
+    character either way though: weak discrimination shows up again,
+    consistently, in a third independent evaluation. Not chased further
+    with a higher threshold value given time constraints.
+
+  **Open item, honestly flagged rather than guessed at**: whether fold 2
+  (the "genuine market breadth" fold, confirmed via reconstructed random
+  draws above) corresponds to the same calendar period as the 58.3%
+  base-rate fold from the very first naive-baseline round early in this
+  project could not be verified -- `models/reports/` is gitignored and
+  has been overwritten by many re-runs since (including the full
+  daily_prices remediation), and even this conversation's own memory of
+  that early finding only preserved the range (42.3%-58.3% across folds),
+  not a fold-by-fold date mapping. Today's clean-data fold 2 shows
+  actual_rate 0.522 (14d) / 0.540 (30d) -- real but not as extreme as
+  58.3%. Not treated as confirmed either way.
 
   Full per-fold, per-variant numbers in
   `models/reports/decision_layer_report.json`. `next_phase_plan.md`
