@@ -260,6 +260,26 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-20 (small consistency correction found resuming Part B)**:
+  Before starting the portfolio backtest, re-verified `model_feature_matrix`
+  and `model_target_labels` actually matched `daily_prices` as claimed
+  below -- they didn't. `assemble_feature_matrix.py` is pure upsert; it
+  never prunes rows whose `(symbol, date)` no longer exists in
+  `daily_prices`, so 135,776 rows orphaned by the 2026-07-19 cleanup
+  (mostly the bogus non-trading-day deletion) were still sitting in
+  `model_feature_matrix`, inflating it to 692,554 rows instead of the
+  556,778 actually reported. The "matches daily_prices exactly" claim
+  below was written from the "rows upserted" log line, not a fresh
+  `COUNT(*)` -- an inference, not a re-verified fact. Also found 450
+  similarly-orphaned `model_target_labels` rows (`IREDA`, `TATACAP`,
+  `LTF`, `SAMMAANCAP` -- the labels rebuild ran before their pre-IPO/
+  pre-rename price cleanup was finalized). Both deleted; both tables now
+  genuinely match `daily_prices` (556,778 rows each, confirmed via direct
+  count). Not worth re-running the model suite over -- the orphaned label
+  rows were 0.08% of the ~548K rows those runs trained on, and produced
+  NULL features (computed fresh from `daily_prices` at training time),
+  not wrong ones.
+
 - **2026-07-19 (CRITICAL remediation completed: daily_prices fully clean,
   all models re-validated)**: Closes out the corruption investigation
   below -- full `next_phase_plan.md` Section 0b remediation done.
