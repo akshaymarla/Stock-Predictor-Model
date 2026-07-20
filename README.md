@@ -12,7 +12,7 @@ progress — check the bottom of this file for the latest status.
 | `surveillance_flags` | `src/fetch_surveillance.py` | Working (ASM confirmed + fixed against live NSE data; GSM wrapper shape confirmed, item field names unconfirmed pending a non-empty response) |
 | `index_membership` | `src/fetch_index_membership.py` | Working (confirmed against a real niftyindices.com CSV; current-snapshot only, see caveat below) |
 | `corporate_announcements` | `src/fetch_corporate_announcements.py` | Working (confirmed against live NSE DevTools response). `category`/`sentiment` columns added 2026-07-19 and populated for real via `src/classify_announcements_by_subject.py` -- `subject` turned out to already be NSE's own SEBI Reg. 30 structured category tag, so this is a free deterministic mapping, not a classifier. 269,056 training-universe rows classified (2.0% positive, 1.0% negative, 97.0% neutral). Feature-level use retired from the model after SHAP re-check (see changelog) -- data itself remains real and available. `src/classify_announcements.py` (LLM path) built but unused, blocked on API credentials, not needed given the free result |
-| `financial_results` | `src/fetch_financial_results.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 12,039 rows) — quarterly only; alias-based mapping for company-template variance; disclosure_date confirmed for 48.6%, rest captured with disclosure_date=NULL (see below). **Two real data-quality issues found 2026-07-20** while verifying `weekly_shortlist.py` output against real financials — see changelog: (1) for 127/498 symbols the latest CONFIRMED disclosure_date is >180 days stale (46/498 have none at all), sometimes stuck years in the past (e.g. FORTIS/BHARATFORG last confirmed 2023) while real, more recent quarters sit unmatched with disclosure_date=NULL; (2) STANDALONE vs CONSOLIDATED selection in `assemble_feature_matrix.py` is an undocumented tie-break (89% of confirmed-disclosure rows have both scopes filed on the same date, no explicit preference), not the "whichever was most recent" the schema comment implies |
+| `financial_results` | `src/fetch_financial_results.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 12,039 rows) — quarterly only; alias-based mapping for company-template variance; disclosure_date confirmed for 48.6%, rest captured with disclosure_date=NULL (see below). **Two real data-quality issues found and FIXED 2026-07-20** (`next_phase_plan.md` Section 0c) while verifying `weekly_shortlist.py` output against real financials: (1) 127/498 symbols had a confirmed disclosure_date >180 days stale (46/498 had none at all), sometimes stuck years in the past (FORTIS/BHARATFORG last confirmed 2023) while real, more recent quarters sat unmatched — fixed with a 240-day staleness cutoff in `assemble_feature_matrix.py`, past which the value is treated as NULL rather than current; (2) STANDALONE vs CONSOLIDATED selection was an undocumented SQL-tie-order artifact (89% of confirmed-disclosure rows have both scopes filed on the same date) — fixed to deterministically prefer CONSOLIDATED. Same two fixes also apply to `balance_sheet`/`cash_flow`/`ratios` (identical `result_type` column, same join pattern). `model_feature_matrix` rebuilt from scratch on the fix; every downstream model/backtest re-run — see changelog for the full diff |
 | `balance_sheet` | `src/fetch_balance_sheet.py` | Working, full-universe pull confirmed 2026-07-15 (498/500 symbols, 5,057 rows); disclosure_date confirmed for 30.7% (mostly annual-cadence reporting, see below) |
 | `cash_flow` | `src/fetch_cash_flow.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 5,024 rows); disclosure_date confirmed for 30.9% |
 | `ratios` | `src/fetch_ratios.py` | Working, full-universe pull confirmed 2026-07-15 (496/500 symbols, 4,982 rows); disclosure_date confirmed for 31.2% |
@@ -21,7 +21,7 @@ progress — check the bottom of this file for the latest status.
 | `sector_membership` | `src/fetch_sector_membership.py` | Working (confirmed live 2026-07-16 -- all 15 sector constituent CSVs resolved, 249 rows, spot-checked against real symbols e.g. HDFCBANK correctly in Bank+Financial Services+Private Bank, RELIANCE in Energy+Infrastructure+Oil & Gas). Current-snapshot only, same caveat as `index_membership` |
 | `sector_daily_benchmarks` | `src/fetch_macro_sector.py` | Working (confirmed live 2026-07-16 -- sector closes for all 15 sectors spot-checked exactly against raw source data; `sector_relative_alpha_14d` internally consistent across every sector for a given date). Sourced from the same daily snapshot as `macro_regime_indicators`, zero extra requests |
 | `model_target_labels` | `src/compute_target_labels.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 547,965 rows across 539 symbols). Forward-looking TRAINING LABELS ONLY -- never join into the feature side of a training matrix |
-| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-19 on clean `daily_prices` -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog. **`most_recent_as_of()`'s STANDALONE/CONSOLIDATED tie-break is undocumented, not a deliberate choice** (found 2026-07-20, see `financial_results` row above and changelog) -- affects `fin_sales`/`fin_net_profit`/`fin_opm_pct`/`fin_eps` for the ~89% of confirmed-disclosure rows where both scopes were filed on the same date, across the FULL training history, not just current scoring. Not yet fixed -- needs a scope decision before touching (see changelog) |
+| `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-20 on clean `daily_prices` + the 0c tie-break/staleness fixes -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog. `fin_net_profit` non-null count dropped 289,677 → 254,432 after the staleness-cutoff fix -- expected and correct (previously-wrong stale values now correctly NULL rather than silently trusted) |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 | `models/shortlists/*` (not a DB table) | `src/weekly_shortlist.py` | Working, ran end-to-end 2026-07-20 -- production model (trained on all history minus a reserved calibration tail) scores today's eligible universe, ranks top-N, attaches real per-stock SHAP explanations. Machine + human-readable output, gitignored (per-run, not meant to survive rebuilds; compact archive summary in `models/reports/archive/` is what persists). See changelog for two bugs found and fixed during first real run |
 
@@ -260,6 +260,125 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-20 (Section 0c fully remediated: tie-break + staleness fixed, `model_feature_matrix` rebuilt, every downstream model/backtest/decision-layer re-run and diffed against the pre-fix numbers)**:
+  Closes out the bug flagged in the entry directly below (real-financials
+  verification). Fix applied in `src/assemble_feature_matrix.py`:
+
+  1. `load_disclosure_series()` now orders CONSOLIDATED after STANDALONE
+     on tied disclosure dates for every table with a `result_type` column
+     (`financial_results`, `balance_sheet`, `cash_flow`, `ratios` -- all
+     four, not just financials), so `most_recent_as_of()`'s tie-break is
+     deterministic instead of an SQL row-order accident. Verified
+     directly: RELIANCE now resolves to its real CONSOLIDATED Q4 FY26
+     figures (sales 294,059 / net profit 20,589) instead of an arbitrary
+     pick between that and the STANDALONE figures.
+  2. `most_recent_as_of()` and `institutional_trend_as_of()` (which has
+     its own separate bisect) now take `MAX_DISCLOSURE_STALENESS_DAYS =
+     240` and return `None` past that cutoff rather than a stale row --
+     applied to every disclosure-based join (fin/bs/cf/ratio/sh/
+     institutional), not just `financial_results`. Verified directly:
+     FORTIS and BHARATFORG (both stuck >1000 days on a 2023 disclosure)
+     now correctly resolve to `None` instead of the wrong figure.
+  3. `model_feature_matrix` rebuilt from scratch (556,778 rows, unchanged
+     count as expected -- same symbol/date keys, different values).
+     `fin_net_profit` non-null count dropped 289,677 → 254,432 (~12%
+     fewer) -- the correct, expected consequence of no longer trusting
+     stale disclosures. Result-type mix across all confirmed-disclosure
+     rows flipped from a near-arbitrary split to 230,197 CONSOLIDATED vs.
+     24,235 STANDALONE, i.e. CONSOLIDATED is now what's actually used
+     whenever both exist, as intended.
+
+  **Re-ran the full chain, diffed old vs. new rather than assumed
+  stable** (git commit `2bf50a1`'s archive summaries preserved as
+  `*_pre_0c.json` in `models/reports/archive/` for exactly this kind of
+  comparison):
+
+  - **Baselines**: unaffected, as expected -- the simple baseline only
+    uses price/volume momentum, no `fin_*` features.
+  - **LightGBM**: small, bounded AUC changes per fold (±0.001–0.011),
+    no systemic collapse or suspicious jump -- e.g. 14d fold 3 expanding
+    0.5376→0.5480, 30d fold 3 rolling 0.5476→0.5589. Consistent with a
+    real but non-catastrophic correction, same shape as the 0b re-run.
+  - **Platt-inversion fold-slots reproduced a FOURTH time**, same four
+    calendar windows as every prior run (14d fold 3, 14d fold 5, 30d
+    fold 1, 30d fold 3), all four AUC pairs summing to exactly 1.0000 --
+    continues to look like a structural property of those specific
+    calendar windows, not an artifact of any of the bugs fixed so far.
+  - **SHAP institutional-attention ranking -- one real reversal, not just
+    noise**: `sh_inst_mutual_fund_pct` remains the strongest institutional
+    feature in both horizons (unchanged). But `institutional_attention_feature.md`
+    Section 8's claim that `sh_inst_pctrank` is the *weakest* of the six
+    institutional features **no longer holds** -- `sh_inst_total_pct`
+    (the plain raw level) is now weakest in both horizons instead, and
+    `sh_inst_pctrank` outranks it (14d: pctrank 21/30 vs. total 22/30;
+    30d: pctrank 12/30 vs. total 17/30, a bigger jump). This actually
+    *strengthens* the original Section 5 design reasoning ("relative rank
+    should beat absolute level") rather than weakening it -- the earlier
+    "correction to Section 5" was itself apparently distorted by 0c's
+    noise leaking into the overall SHAP allocation via adjacent `fin_*`
+    features. Updated `institutional_attention_feature.md` to flag this
+    precisely rather than leave the old claim standing uncorrected.
+  - **Backtest -- real, fold-level shifts, not just noise, headline
+    framing roughly holds**: `beats Nifty` counts now 3-4/5 across N
+    (was 2-4/5), `beats random` now 2-3/5 (was 3-4/5) -- still a "mixed,
+    modest edge" story, not a reversal of the headline finding. But
+    individual folds moved meaningfully: 14d fold 3 (the fold with the
+    worst drawdown) *improved* -- model return went from clearly negative
+    (-0.077 to -0.076 across N) to roughly flat/slightly positive (-0.018
+    to +0.043), and max drawdown improved from ~-20% to ~-15%, still the
+    worst fold but less severe. 14d fold 4 got *worse* at N=10 specifically
+    -- flipped from positive (+0.039) to negative (-0.081), drawdown
+    widened from -8.3% to -11.7%. Report this precisely rather than only
+    the aggregate, per this project's standing per-fold discipline --
+    a fold-level reversal is exactly the kind of thing an average could
+    hide.
+  - **Decision layer -- the most consequential change**: recomputed the
+    compounded/Calmar numbers (same method as the 2026-07-20 Section 5
+    correction) on the rebuilt data:
+
+    | Horizon | Variant | Old Calmar | New Calmar |
+    |---|---|---|---|
+    | 14d | baseline | 4.61 | 3.95 |
+    | 14d | half exposure | 7.06 | **5.18** |
+    | 14d | zero exposure | 14.81 | 4.72 |
+    | 30d | baseline | 3.91 | 2.34 |
+    | 30d | half exposure | 6.20 | 3.93 |
+    | 30d | zero exposure | 11.97 | 5.93 |
+
+    **14d's finding reversed, not just shrank**: previously zero-exposure
+    strictly dominated (monotonically increasing Calmar with more
+    de-risking). On corrected data, **half-exposure now has the best
+    Calmar (5.18), beating zero-exposure (4.72)** -- going all the way to
+    cash is no longer optimal at 14d, there's an interior optimum instead.
+    30d's finding held directionally (still monotonically improving with
+    more de-risking, zero-exposure still best) but the magnitude of the
+    advantage roughly halved. **The earlier 14.81/11.97 Calmar figures
+    were partly an artifact of the 0c bug's noise, not a clean signal** --
+    this is exactly why the raw-JSON-before-treating-as-confirmed
+    discipline from the Section 5 correction exists. Updated
+    `next_phase_plan.md` Section 5's RESULT block accordingly. **Which
+    variant to deploy remains explicitly undecided** (same as before --
+    this is a use-case-dependent choice, not a default), but the
+    corrected numbers materially change what that choice is actually
+    weighing.
+  - **`weekly_shortlist.py`**: re-ran on the corrected data. FORTIS and
+    BHARATFORG no longer appear in either horizon's top-5 (their earlier
+    high rank was partly driven by the wrong stale `fin_days_since_disclosure`
+    value being a strong supporting SHAP feature) -- confirms the fix
+    changed real output, not just internal numbers. Every `fin_*`
+    explanation line now genuinely shows `[consolidated]` in practice
+    (previously an arbitrary mix), and no `[STALE]` caveat fired in this
+    week's top rankings.
+
+  **Not changed**: the methodology itself (walk-forward/embargo,
+  isotonic-over-Platt, SHAP-over-default-importance, the archive
+  convention) -- same conclusion as every prior "re-run after a bug fix"
+  entry in this project. What changed is specific numbers, several
+  materially (the decision-layer Calmar reversal being the most
+  consequential), which is exactly why this project treats every result
+  as provisional until independently re-verified rather than
+  grandfathered in.
 
 - **2026-07-20 (real-financials verification on the first live `weekly_shortlist.py` output -- found a systemic bug, not fixed yet, flagging for a scope decision)**:
   User independently spot-checked shortlist output against real, current

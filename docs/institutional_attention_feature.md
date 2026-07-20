@@ -166,6 +166,20 @@ number:
 > — the same shape of result the corrupted-data run found. This project's
 > founding hypothesis test got the scrutiny it deserved rather than being
 > grandfathered in, and it held up.
+>
+> **Second, independent re-validation needed (2026-07-20)**: a separate
+> bug (`next_phase_plan.md` Section 0c -- arbitrary standalone/
+> consolidated tie-break on 89% of confirmed-disclosure rows, plus stale
+> disclosures used with no cutoff) directly affects `fin_eps` and
+> `fin_days_since_disclosure` -- features this project's SHAP rankings
+> directly compare `sh_inst_*` against (`model_build_spec.md` Section 7b
+> cites `fin_eps`'s rank as context). The 0b re-validation above stands on
+> its own (separate root cause, already re-confirmed) -- but Section 8's
+> SHAP result below was run before the 0c fix, so the *relative* ranking
+> of `sh_inst_*` against `fin_eps`/`fin_days_since_disclosure`
+> specifically should be treated as pending until re-run against the
+> 0c-corrected `model_feature_matrix`. Fixed and rebuilt 2026-07-20 -- see
+> README changelog for the fresh re-run.
 
 ## 8. RESULT (2026-07-19) — hypothesis tested, confirmed via SHAP on real data
 
@@ -183,15 +197,25 @@ genuine signal, but does not dominate:
   `sh_inst_total_pct` level in both horizons. The "attention increasing/
   decreasing matters more than the absolute level" framing from Section 5
   held up empirically.
-- **Correction to Section 5's relative-rank design**:
-  `sh_inst_pctrank` (the sector/universe-relative percentile rank
-  feature) actually ranks LOWEST of all six institutional features in
-  both horizons (14d rank 24/31, 30d rank 19/31) — weaker even than the
-  plain static total it was meant to improve on. The "neglect is
-  relative, not absolute" reasoning was sound logically, but empirically
-  the raw trend features are carrying the signal, not the
-  relative-positioning version. Don't assume this feature is pulling its
-  weight just because the design doc argued for it. Note this is
+- **Correction to Section 5's relative-rank design, ITSELF corrected
+  2026-07-20 after the 0c fix (see the re-validation note above)**: this
+  originally read "`sh_inst_pctrank` ranks LOWEST of all six institutional
+  features in both horizons (14d rank 24/31, 30d rank 19/31)" — run before
+  the `next_phase_plan.md` Section 0c fix (`financial_results` tie-break +
+  staleness bug, which touched `fin_eps`/`fin_days_since_disclosure` and
+  therefore distorted the overall SHAP allocation these ranks are relative
+  to). **Re-run on the 0c-corrected `model_feature_matrix`: `sh_inst_pctrank`
+  is no longer the weakest** — `sh_inst_total_pct` (the plain static
+  level) is now weakest in both horizons instead, and `sh_inst_pctrank`
+  outranks it (14d: pctrank 21/30 vs. total 22/30; 30d: pctrank 12/30 vs.
+  total 17/30, a bigger jump). This *reverses* the conclusion below, not
+  just adjusts it: the "neglect is relative, not absolute" reasoning
+  behind `sh_inst_pctrank`'s design **held up empirically after all** —
+  the plain level, not the relative-rank version, is what's actually
+  underperforming. (The original caution below -- "don't assume a
+  feature is pulling its weight just because the design doc argued for
+  it" -- is still good general advice, it just turned out not to apply
+  to this specific feature once the data was clean.) Note this is
   currently a full-universe rank, not sector-relative
   (`sector_membership` has no historical snapshots yet, same accepted
   limitation as `avg_sector_*` elsewhere in this project) — the weak

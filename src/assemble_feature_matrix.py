@@ -24,6 +24,37 @@ but no confirmed disclosure date within the SEBI window -- see
 screener_common.find_disclosure()), which is correctly unusable as a
 point-in-time join key.
 
+TWO MORE BUGS FIXED HERE (2026-07-20, docs/next_phase_plan.md Section 0c
+-- found while verifying real weekly_shortlist.py output against actual
+financials, FORTIS's net_profit off by ~20x):
+
+  4. STANDALONE/CONSOLIDATED tie-break was arbitrary. financial_results,
+     balance_sheet, cash_flow, and ratios all carry a `result_type`
+     column, and 89% of confirmed-disclosure (symbol, disclosure_date)
+     groups in financial_results have BOTH scopes filed on the same date
+     (real filings always report both together) -- the old
+     `load_disclosure_series()` had no secondary ORDER BY key, so
+     `most_recent_as_of()`'s bisect picked whichever row SQLite happened
+     to return last for a tied date, an accident of physical row order,
+     not the "most recent" schema.sql's comment implied. Now explicitly
+     orders CONSOLIDATED after STANDALONE on tied dates so bisect's
+     tie-break is deterministic and picks CONSOLIDATED -- the more
+     complete figure, and what a human would actually cross-check against
+     news coverage (confirmed via FORTIS: consolidated net profit is the
+     figure multiple outlets report, not standalone).
+  5. Stale disclosures were used as if current, with no cutoff. FORTIS
+     and BHARATFORG were both frozen on a single confirmed disclosure
+     from 2023 while real, more recent quarters sat unmatched
+     (disclosure_date IS NULL) in the same table -- 46/498 symbols have
+     zero confirmed disclosures ever, 127/498 are >180 days stale.
+     `most_recent_as_of()` now takes `max_staleness_days` and returns None
+     (not a stale row) once the gap between the as-of date and the
+     matched disclosure exceeds it -- applied uniformly to every
+     disclosure-based lookup (fin/bs/cf/ratio/sh/institutional), not just
+     financial_results, since they all share this exact same join
+     pattern and are equally exposed. See MAX_DISCLOSURE_STALENESS_DAYS
+     below for the specific cutoff and reasoning.
+
 Multi-sector membership (a stock can legitimately be in more than one
 sectoral index, e.g. a large private bank in both 'Nifty Bank' and
 'Nifty Private Bank') is handled by AVERAGING sector_daily_benchmarks
@@ -87,24 +118,59 @@ def load_sector_membership_by_symbol(conn) -> dict:
     return result
 
 
+# See module docstring, bug 5. ~2.67 quarters -- generous enough that one
+# genuinely late filing doesn't flap between "current" and "stale", tight
+# enough to catch a disclosure truly stuck multiple quarters back (the
+# FORTIS/BHARATFORG failure mode was 1000+ days). Applied uniformly to
+# every disclosure-based join (fin/bs/cf/ratio/sh/institutional) rather
+# than tuned per-table -- they're all quarterly-cadence SEBI disclosures,
+# a single shared cutoff is more inspectable than five silently-different
+# ones.
+MAX_DISCLOSURE_STALENESS_DAYS = 240
+
+# Tables whose rows can collide on the same disclosure_date (STANDALONE +
+# CONSOLIDATED filed together for the same event) -- see module docstring,
+# bug 4. shareholding_pattern has no result_type column, not affected.
+HAS_RESULT_TYPE = {"financial_results", "balance_sheet", "cash_flow", "ratios"}
+
+
 def load_disclosure_series(conn, table: str, columns: list, symbol: str) -> list:
     """Rows with disclosure_date IS NOT NULL for one symbol, sorted by
-    disclosure_date -- the only safe join key (see module docstring)."""
+    disclosure_date -- the only safe join key (see module docstring). For
+    tables with a result_type column, ties on the same disclosure_date are
+    explicitly broken to put CONSOLIDATED last, so most_recent_as_of()'s
+    bisect (which picks the LAST matching row for a tied date) picks
+    CONSOLIDATED deterministically instead of an arbitrary SQL row order
+    (module docstring, bug 4)."""
     col_sql = ", ".join(columns)
+    tie_break = (", CASE WHEN result_type = 'CONSOLIDATED' THEN 1 ELSE 0 END"
+                 if table in HAS_RESULT_TYPE else "")
     rows = conn.execute(
         f"SELECT disclosure_date, {col_sql} FROM {table} "
-        f"WHERE symbol = ? AND disclosure_date IS NOT NULL ORDER BY disclosure_date",
+        f"WHERE symbol = ? AND disclosure_date IS NOT NULL "
+        f"ORDER BY disclosure_date{tie_break}",
         (symbol,),
     ).fetchall()
     return rows  # [(disclosure_date, col1, col2, ...), ...]
 
 
-def most_recent_as_of(series: list, date: str):
-    """series: sorted [(disclosure_date, ...), ...]. Returns the row with
-    the latest disclosure_date <= date, or None."""
+def most_recent_as_of(series: list, date: str, max_staleness_days: int = MAX_DISCLOSURE_STALENESS_DAYS):
+    """series: sorted [(disclosure_date, ...), ...], ties on disclosure_date
+    already broken to prefer CONSOLIDATED (see load_disclosure_series).
+    Returns the row with the latest disclosure_date <= date, or None if
+    no such row exists OR the match is older than max_staleness_days
+    (module docstring, bug 5 -- a disclosure this old is more likely an
+    unmatched-newer-quarter gap than genuine current information)."""
     dates = [r[0] for r in series]
     idx = bisect.bisect_right(dates, date) - 1
-    return series[idx] if idx >= 0 else None
+    if idx < 0:
+        return None
+    row = series[idx]
+    if max_staleness_days is not None:
+        gap_days = (datetime.strptime(date, "%Y-%m-%d") - datetime.strptime(row[0], "%Y-%m-%d")).days
+        if gap_days > max_staleness_days:
+            return None
+    return row
 
 
 def load_institutional_series(conn, symbol: str) -> list:
@@ -132,12 +198,17 @@ def institutional_trend_as_of(series: list, date: str):
     when a disclosed quarter is found 300-400 days before the as-of
     quarter's quarter_end_date; irregular filing gaps (a skipped or extra
     quarter, seen live for symbol BSE) otherwise leave it correctly NULL
-    rather than compare against the wrong quarter."""
+    rather than compare against the wrong quarter. Same staleness cutoff
+    as most_recent_as_of() (module docstring, bug 5) -- applied here too
+    since this uses its own bisect rather than most_recent_as_of()."""
     dates = [r[0] for r in series]
     idx = bisect.bisect_right(dates, date) - 1
     if idx < 0:
         return None, None, None
     row = series[idx]
+    gap_days = (datetime.strptime(date, "%Y-%m-%d") - datetime.strptime(row[0], "%Y-%m-%d")).days
+    if gap_days > MAX_DISCLOSURE_STALENESS_DAYS:
+        return None, None, None
     total = row[2]
 
     qoq_change = None

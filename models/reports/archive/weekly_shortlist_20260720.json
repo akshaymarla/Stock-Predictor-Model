@@ -1,7 +1,7 @@
 {
   "run_type": "weekly_shortlist",
   "run_date": "2026-07-20",
-  "git_commit": "2bf50a1",
+  "git_commit": "422d167",
   "notes": "",
   "scoring_date": "2026-07-15",
   "universe": {
@@ -27,57 +27,57 @@
       "model_train_end": "2026-03-04",
       "calib_start": "2026-03-25",
       "calib_end": "2026-06-24",
-      "calib_auc_raw": 0.5623683501901923,
+      "calib_auc_raw": 0.5601610413196527,
       "top_10_shortlist": [
         {
           "rank": 1,
-          "symbol": "ACMESOLAR",
-          "calibrated_prob": 0.8478260869565217
+          "symbol": "SAMMAANCAP",
+          "calibrated_prob": 0.712
         },
         {
           "rank": 2,
-          "symbol": "SAMMAANCAP",
-          "calibrated_prob": 0.7987012987012987
+          "symbol": "SAILIFE",
+          "calibrated_prob": 0.712
         },
         {
           "rank": 3,
-          "symbol": "BHARATFORG",
-          "calibrated_prob": 0.7987012987012987
+          "symbol": "CASTROLIND",
+          "calibrated_prob": 0.712
         },
         {
           "rank": 4,
-          "symbol": "SBIN",
-          "calibrated_prob": 0.7215686274509804
+          "symbol": "ABSLAMC",
+          "calibrated_prob": 0.712
         },
         {
           "rank": 5,
           "symbol": "INDUSTOWER",
-          "calibrated_prob": 0.7215686274509804
+          "calibrated_prob": 0.712
         },
         {
           "rank": 6,
-          "symbol": "CHOICEIN",
-          "calibrated_prob": 0.7215686274509804
+          "symbol": "BAJAJHLDNG",
+          "calibrated_prob": 0.712
         },
         {
           "rank": 7,
-          "symbol": "FORTIS",
-          "calibrated_prob": 0.7215686274509804
+          "symbol": "SWIGGY",
+          "calibrated_prob": 0.712
         },
         {
           "rank": 8,
-          "symbol": "MFSL",
-          "calibrated_prob": 0.6954954954954956
+          "symbol": "THERMAX",
+          "calibrated_prob": 0.6939890710382512
         },
         {
           "rank": 9,
-          "symbol": "CCL",
-          "calibrated_prob": 0.6954954954954956
+          "symbol": "NAVINFLUOR",
+          "calibrated_prob": 0.6939890710382512
         },
         {
           "rank": 10,
-          "symbol": "BLUEJET",
-          "calibrated_prob": 0.6954954954954956
+          "symbol": "BHARTIARTL",
+          "calibrated_prob": 0.6939890710382512
         }
       ]
     },
@@ -86,57 +86,57 @@
       "model_train_end": "2026-01-16",
       "calib_start": "2026-03-02",
       "calib_end": "2026-06-02",
-      "calib_auc_raw": 0.5849876120630015,
+      "calib_auc_raw": 0.6060412071358742,
       "top_10_shortlist": [
         {
           "rank": 1,
-          "symbol": "FORTIS",
-          "calibrated_prob": 0.7849223946784922
+          "symbol": "RKFORGE",
+          "calibrated_prob": 0.7902559867877786
         },
         {
           "rank": 2,
-          "symbol": "SBIN",
-          "calibrated_prob": 0.7849223946784922
+          "symbol": "APLAPOLLO",
+          "calibrated_prob": 0.7857142857142857
         },
         {
           "rank": 3,
-          "symbol": "URBANCO",
-          "calibrated_prob": 0.7434456928838952
+          "symbol": "HINDPETRO",
+          "calibrated_prob": 0.7675544794188862
         },
         {
           "rank": 4,
-          "symbol": "MFSL",
-          "calibrated_prob": 0.7434456928838952
+          "symbol": "SWIGGY",
+          "calibrated_prob": 0.7675544794188862
         },
         {
           "rank": 5,
-          "symbol": "BHARATFORG",
-          "calibrated_prob": 0.7217806041335453
+          "symbol": "HEG",
+          "calibrated_prob": 0.7675544794188862
         },
         {
           "rank": 6,
-          "symbol": "SOBHA",
-          "calibrated_prob": 0.7217806041335453
+          "symbol": "BPCL",
+          "calibrated_prob": 0.7675544794188862
         },
         {
           "rank": 7,
-          "symbol": "BLUESTARCO",
-          "calibrated_prob": 0.7217806041335453
+          "symbol": "MAHABANK",
+          "calibrated_prob": 0.7673130193905817
         },
         {
           "rank": 8,
-          "symbol": "CYIENT",
-          "calibrated_prob": 0.7209486166007903
+          "symbol": "OFSS",
+          "calibrated_prob": 0.7673130193905817
         },
         {
           "rank": 9,
-          "symbol": "HEROMOTOCO",
-          "calibrated_prob": 0.7209486166007903
+          "symbol": "CHENNPETRO",
+          "calibrated_prob": 0.7673130193905817
         },
         {
           "rank": 10,
-          "symbol": "UPL",
-          "calibrated_prob": 0.7209486166007903
+          "symbol": "ANTHEM",
+          "calibrated_prob": 0.7654569892473119
         }
       ]
     }

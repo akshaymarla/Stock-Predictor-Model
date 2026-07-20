@@ -1,8 +1,8 @@
 {
   "run_type": "lightgbm",
   "run_date": "2026-07-20",
-  "git_commit": "422d167",
-  "notes": "rolling_window_days: {\"14d\": 488, \"30d\": 481}",
+  "git_commit": "0c20d52",
+  "notes": "backfilled 2026-07-20 from existing clean-data full report; rolling_window_days: {\"14d\": 488, \"30d\": 481}",
   "horizons": {
     "14d": {
       "folds": [
@@ -11,31 +11,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2023-07-11",
-          "train_rows": 204390,
-          "n_test": 58183,
-          "actual_rate": 0.5523090937215338,
-          "auc": 0.5136504075586754,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 204682,
+          "n_test": 58232,
+          "actual_rate": 0.5522564912762742,
+          "auc": 0.5125814709731611,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              710.0
-            ],
-            [
-              "sh_inst_qoq_change_pct",
-              630.0
+              702.0
             ],
             [
               "avg_traded_value_20d",
-              630.0
+              618.0
             ],
             [
               "india_vix_close",
-              569.0
+              618.0
+            ],
+            [
+              "sh_inst_qoq_change_pct",
+              613.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              567.0
+              568.0
             ]
           ]
         },
@@ -44,31 +44,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2024-02-09",
-          "train_rows": 268636,
-          "n_test": 59631,
-          "actual_rate": 0.5224463785614865,
-          "auc": 0.5144581032518933,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 268981,
+          "n_test": 59646,
+          "actual_rate": 0.5224491164537437,
+          "auc": 0.5161147784578167,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
-              "sh_inst_yoy_change_pct",
-              596.0
+              "sh_inst_qoq_change_pct",
+              606.0
             ],
             [
-              "sh_inst_qoq_change_pct",
-              595.0
+              "sh_inst_yoy_change_pct",
+              585.0
             ],
             [
               "avg_traded_value_20d",
-              534.0
+              566.0
             ],
             [
               "nifty50_dist_50dma_pct",
-              530.0
+              548.0
             ],
             [
               "india_vix_close",
-              525.0
+              546.0
             ]
           ]
         },
@@ -77,31 +77,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2024-09-12",
-          "train_rows": 334524,
+          "train_rows": 334893,
           "n_test": 61868,
           "actual_rate": 0.4427975690179091,
-          "auc": 0.54799622657147,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.5375969995420367,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
+              "sh_inst_yoy_change_pct",
+              614.0
+            ],
+            [
               "nifty50_dist_50dma_pct",
-              593.0
+              610.0
             ],
             [
               "india_vix_close",
-              568.0
+              592.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              558.0
-            ],
-            [
-              "sh_inst_yoy_change_pct",
-              539.0
+              564.0
             ],
             [
               "avg_traded_value_20d",
-              492.0
+              532.0
             ]
           ]
         },
@@ -110,31 +110,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2025-04-16",
-          "train_rows": 402807,
+          "train_rows": 403176,
           "n_test": 63767,
           "actual_rate": 0.453918170840717,
-          "auc": 0.46969428134470503,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.47209549156041997,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "nifty50_dist_50dma_pct",
-              710.0
+              722.0
             ],
             [
               "india_vix_close",
-              558.0
-            ],
-            [
-              "sh_inst_yoy_change_pct",
-              541.0
+              603.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              507.0
+              505.0
             ],
             [
-              "sh_inst_fii_fpi_pct",
-              449.0
+              "sh_inst_yoy_change_pct",
+              467.0
+            ],
+            [
+              "avg_traded_value_20d",
+              455.0
             ]
           ]
         },
@@ -143,31 +143,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2025-11-17",
-          "train_rows": 473206,
+          "train_rows": 473575,
           "n_test": 65964,
           "actual_rate": 0.5476168819356012,
-          "auc": 0.559301734715219,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.5638279721101135,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
-              "india_vix_close",
-              740.0
+              "nifty50_dist_50dma_pct",
+              669.0
             ],
             [
-              "nifty50_dist_50dma_pct",
-              697.0
+              "india_vix_close",
+              669.0
             ],
             [
               "sh_inst_yoy_change_pct",
-              530.0
-            ],
-            [
-              "sh_inst_qoq_change_pct",
-              477.0
+              546.0
             ],
             [
               "avg_traded_value_20d",
-              429.0
+              478.0
+            ],
+            [
+              "sh_inst_qoq_change_pct",
+              458.0
             ]
           ]
         },
@@ -176,31 +176,31 @@
           "strategy": "rolling",
           "train_start": "2021-07-16",
           "train_end": "2023-07-11",
-          "train_rows": 204390,
-          "n_test": 58183,
-          "actual_rate": 0.5523090937215338,
-          "auc": 0.5136504075586754,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 204682,
+          "n_test": 58232,
+          "actual_rate": 0.5522564912762742,
+          "auc": 0.5125814709731611,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              710.0
-            ],
-            [
-              "sh_inst_qoq_change_pct",
-              630.0
+              702.0
             ],
             [
               "avg_traded_value_20d",
-              630.0
+              618.0
             ],
             [
               "india_vix_close",
-              569.0
+              618.0
+            ],
+            [
+              "sh_inst_qoq_change_pct",
+              613.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              567.0
+              568.0
             ]
           ]
         },
@@ -209,31 +209,31 @@
           "strategy": "rolling",
           "train_start": "2022-02-18",
           "train_end": "2024-02-09",
-          "train_rows": 209377,
-          "n_test": 59631,
-          "actual_rate": 0.5224463785614865,
-          "auc": 0.5134130877178336,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 209625,
+          "n_test": 59646,
+          "actual_rate": 0.5224491164537437,
+          "auc": 0.5128168556414165,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              636.0
+              687.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              601.0
-            ],
-            [
-              "avg_traded_value_20d",
-              522.0
+              570.0
             ],
             [
               "india_vix_close",
-              507.0
+              528.0
             ],
             [
               "nifty50_dist_50dma_pct",
-              496.0
+              517.0
+            ],
+            [
+              "avg_traded_value_20d",
+              515.0
             ]
           ]
         },
@@ -242,31 +242,31 @@
           "strategy": "rolling",
           "train_start": "2022-09-26",
           "train_end": "2024-09-12",
-          "train_rows": 214068,
+          "train_rows": 214251,
           "n_test": 61868,
           "actual_rate": 0.4427975690179091,
-          "auc": 0.5374441497332503,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.5328434789717511,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_qoq_change_pct",
-              584.0
+              609.0
             ],
             [
               "nifty50_dist_50dma_pct",
-              582.0
+              587.0
             ],
             [
               "sh_inst_yoy_change_pct",
-              554.0
+              537.0
             ],
             [
               "avg_traded_value_20d",
-              549.0
+              497.0
             ],
             [
-              "sh_inst_mutual_fund_pct",
-              468.0
+              "india_vix_close",
+              471.0
             ]
           ]
         },
@@ -275,31 +275,31 @@
           "strategy": "rolling",
           "train_start": "2023-05-02",
           "train_end": "2025-04-16",
-          "train_rows": 219938,
+          "train_rows": 220036,
           "n_test": 63767,
           "actual_rate": 0.453918170840717,
-          "auc": 0.476396088335298,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.4749499423462784,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "nifty50_dist_50dma_pct",
-              577.0
+              615.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              565.0
-            ],
-            [
-              "sh_inst_yoy_change_pct",
-              514.0
+              557.0
             ],
             [
               "fin_days_since_disclosure",
-              482.0
+              529.0
             ],
             [
-              "avg_traded_value_20d",
-              469.0
+              "sh_inst_yoy_change_pct",
+              516.0
+            ],
+            [
+              "volatility_20d",
+              460.0
             ]
           ]
         },
@@ -308,27 +308,27 @@
           "strategy": "rolling",
           "train_start": "2023-11-30",
           "train_end": "2025-11-17",
-          "train_rows": 226817,
+          "train_rows": 226857,
           "n_test": 65964,
           "actual_rate": 0.5476168819356012,
-          "auc": 0.5833357594742766,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.5830888882111187,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "nifty50_dist_50dma_pct",
-              659.0
-            ],
-            [
-              "sh_inst_yoy_change_pct",
-              562.0
-            ],
-            [
-              "india_vix_close",
-              539.0
+              658.0
             ],
             [
               "fin_days_since_disclosure",
-              508.0
+              556.0
+            ],
+            [
+              "sh_inst_yoy_change_pct",
+              519.0
+            ],
+            [
+              "india_vix_close",
+              519.0
             ],
             [
               "sh_inst_qoq_change_pct",
@@ -345,31 +345,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2023-06-30",
-          "train_rows": 201112,
-          "n_test": 50206,
-          "actual_rate": 0.5748117754850018,
-          "auc": 0.5061154098000905,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 201382,
+          "n_test": 50244,
+          "actual_rate": 0.5746158745322825,
+          "auc": 0.5006216066066962,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              947.0
+              946.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              760.0
-            ],
-            [
-              "avg_traded_value_20d",
-              670.0
+              782.0
             ],
             [
               "sh_inst_fii_fpi_pct",
-              658.0
+              667.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              640.0
+              657.0
+            ],
+            [
+              "avg_traded_value_20d",
+              589.0
             ]
           ]
         },
@@ -378,27 +378,27 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2024-01-29",
-          "train_rows": 264288,
-          "n_test": 51389,
-          "actual_rate": 0.5395318064177158,
-          "auc": 0.4829735744953845,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 264606,
+          "n_test": 51393,
+          "actual_rate": 0.5395092716906972,
+          "auc": 0.4886150199136319,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              807.0
+              789.0
             ],
             [
               "sh_inst_fii_fpi_pct",
-              664.0
+              671.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              657.0
+              670.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              614.0
+              594.0
             ],
             [
               "avg_traded_value_20d",
@@ -411,31 +411,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2024-08-28",
-          "train_rows": 329073,
+          "train_rows": 329413,
           "n_test": 53371,
           "actual_rate": 0.4256056659983886,
-          "auc": 0.5594782582646822,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.5507454379618647,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              683.0
+              729.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              643.0
+              691.0
             ],
             [
               "sh_inst_fii_fpi_pct",
-              587.0
+              615.0
             ],
             [
               "avg_traded_value_20d",
-              541.0
+              546.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              529.0
+              520.0
             ]
           ]
         },
@@ -444,31 +444,31 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2025-03-25",
-          "train_rows": 396159,
+          "train_rows": 396499,
           "n_test": 54919,
           "actual_rate": 0.4433984595495184,
-          "auc": 0.48042031716508965,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.4813100234669889,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              675.0
-            ],
-            [
-              "sh_inst_mutual_fund_pct",
-              587.0
+              708.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              586.0
+              621.0
             ],
             [
               "sh_inst_fii_fpi_pct",
-              520.0
+              561.0
+            ],
+            [
+              "sh_inst_mutual_fund_pct",
+              511.0
             ],
             [
               "india_vix_close",
-              482.0
+              487.0
             ]
           ]
         },
@@ -477,11 +477,11 @@
           "strategy": "expanding",
           "train_start": "2021-07-16",
           "train_end": "2025-10-24",
-          "train_rows": 465253,
+          "train_rows": 465593,
           "n_test": 56934,
           "actual_rate": 0.5803913303122914,
-          "auc": 0.5810572033564441,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.574012979332857,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
@@ -489,19 +489,19 @@
             ],
             [
               "sh_inst_qoq_change_pct",
-              619.0
-            ],
-            [
-              "india_vix_close",
-              560.0
+              627.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              527.0
+              557.0
+            ],
+            [
+              "india_vix_close",
+              533.0
             ],
             [
               "sh_inst_fii_fpi_pct",
-              485.0
+              468.0
             ]
           ]
         },
@@ -510,31 +510,31 @@
           "strategy": "rolling",
           "train_start": "2021-07-16",
           "train_end": "2023-06-30",
-          "train_rows": 201112,
-          "n_test": 50206,
-          "actual_rate": 0.5748117754850018,
-          "auc": 0.5061154098000905,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 201382,
+          "n_test": 50244,
+          "actual_rate": 0.5746158745322825,
+          "auc": 0.5006216066066962,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              947.0
+              946.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              760.0
-            ],
-            [
-              "avg_traded_value_20d",
-              670.0
+              782.0
             ],
             [
               "sh_inst_fii_fpi_pct",
-              658.0
+              667.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              640.0
+              657.0
+            ],
+            [
+              "avg_traded_value_20d",
+              589.0
             ]
           ]
         },
@@ -543,31 +543,31 @@
           "strategy": "rolling",
           "train_start": "2022-02-16",
           "train_end": "2024-01-29",
-          "train_rows": 205904,
-          "n_test": 51389,
-          "actual_rate": 0.5395318064177158,
-          "auc": 0.48411163862679274,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "train_rows": 206137,
+          "n_test": 51393,
+          "actual_rate": 0.5395092716906972,
+          "auc": 0.488531167315609,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              820.0
+              849.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              690.0
-            ],
-            [
-              "sh_inst_fii_fpi_pct",
-              636.0
+              663.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              601.0
+              633.0
+            ],
+            [
+              "sh_inst_fii_fpi_pct",
+              580.0
             ],
             [
               "avg_traded_value_20d",
-              548.0
+              530.0
             ]
           ]
         },
@@ -576,31 +576,31 @@
           "strategy": "rolling",
           "train_start": "2022-09-20",
           "train_end": "2024-08-28",
-          "train_rows": 210451,
+          "train_rows": 210621,
           "n_test": 53371,
           "actual_rate": 0.4256056659983886,
-          "auc": 0.5588773838838526,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.5475909528332147,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              672.0
+              701.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              660.0
-            ],
-            [
-              "sh_inst_fii_fpi_pct",
-              600.0
-            ],
-            [
-              "sh_inst_mutual_fund_pct",
-              569.0
+              687.0
             ],
             [
               "avg_traded_value_20d",
-              521.0
+              559.0
+            ],
+            [
+              "sh_inst_mutual_fund_pct",
+              534.0
+            ],
+            [
+              "sh_inst_fii_fpi_pct",
+              526.0
             ]
           ]
         },
@@ -609,31 +609,31 @@
           "strategy": "rolling",
           "train_start": "2023-04-21",
           "train_end": "2025-03-25",
-          "train_rows": 216070,
+          "train_rows": 216159,
           "n_test": 54919,
           "actual_rate": 0.4433984595495184,
-          "auc": 0.496938639486191,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.48845707828297724,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
-              "sh_inst_qoq_change_pct",
-              659.0
-            ],
-            [
               "sh_inst_yoy_change_pct",
-              636.0
+              680.0
             ],
             [
-              "sh_inst_fii_fpi_pct",
-              559.0
+              "sh_inst_qoq_change_pct",
+              641.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              553.0
+              572.0
             ],
             [
-              "fin_sales",
-              526.0
+              "sh_inst_fii_fpi_pct",
+              464.0
+            ],
+            [
+              "avg_traded_value_20d",
+              445.0
             ]
           ]
         },
@@ -642,31 +642,31 @@
           "strategy": "rolling",
           "train_start": "2023-11-17",
           "train_end": "2025-10-24",
-          "train_rows": 222729,
+          "train_rows": 222763,
           "n_test": 56934,
           "actual_rate": 0.5803913303122914,
-          "auc": 0.5995403378850397,
-          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP -- see shap_calibration archive for SHAP",
+          "auc": 0.6020414793543157,
+          "top_5_feature_importances_NOTE": "default split-count importance, NOT SHAP",
           "top_5_feature_importances": [
             [
               "sh_inst_yoy_change_pct",
-              721.0
+              690.0
             ],
             [
               "sh_inst_qoq_change_pct",
-              582.0
+              564.0
             ],
             [
               "sh_inst_mutual_fund_pct",
-              526.0
+              539.0
+            ],
+            [
+              "fin_days_since_disclosure",
+              499.0
             ],
             [
               "fin_sales",
-              489.0
-            ],
-            [
-              "fin_opm_pct",
-              481.0
+              437.0
             ]
           ]
         }

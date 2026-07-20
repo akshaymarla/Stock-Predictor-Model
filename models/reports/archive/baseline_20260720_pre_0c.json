@@ -1,8 +1,8 @@
 {
   "run_type": "baseline",
   "run_date": "2026-07-20",
-  "git_commit": "422d167",
-  "notes": "",
+  "git_commit": "0c20d52",
+  "notes": "backfilled 2026-07-20 from existing clean-data full report, not written live",
   "horizons": {
     "14d": {
       "folds": [
@@ -13,8 +13,8 @@
           "test_start": "2023-08-01",
           "test_end": "2024-02-09",
           "n_test": 57285,
-          "actual_rate": 0.5523090937215338,
-          "naive_predicted_prob": 0.49090953569157003,
+          "actual_rate": 0.5522564912762742,
+          "naive_predicted_prob": 0.49090296166736697,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5031208207167913
         },
@@ -25,8 +25,8 @@
           "test_start": "2024-03-01",
           "test_end": "2024-09-12",
           "n_test": 58402,
-          "actual_rate": 0.5224463785614865,
-          "naive_predicted_prob": 0.5084314834943939,
+          "actual_rate": 0.5224491164537437,
+          "naive_predicted_prob": 0.5084039393116986,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5139869608644675
         },
@@ -38,7 +38,7 @@
           "test_end": "2025-04-16",
           "n_test": 61106,
           "actual_rate": 0.4427975690179091,
-          "naive_predicted_prob": 0.5071205653406033,
+          "naive_predicted_prob": 0.5070992824573819,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5206536486617357
         },
@@ -50,7 +50,7 @@
           "test_end": "2025-11-17",
           "n_test": 63092,
           "actual_rate": 0.453918170840717,
-          "naive_predicted_prob": 0.49696504777722333,
+          "naive_predicted_prob": 0.49695666408714806,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5039256105481027
         },
@@ -62,7 +62,7 @@
           "test_end": "2026-06-22",
           "n_test": 65809,
           "actual_rate": 0.5476168819356012,
-          "naive_predicted_prob": 0.4924092255804026,
+          "naive_predicted_prob": 0.4924056379665312,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.4973286408178525
         }
@@ -77,8 +77,8 @@
           "test_start": "2023-08-14",
           "test_end": "2024-01-29",
           "n_test": 49426,
-          "actual_rate": 0.5748117754850018,
-          "naive_predicted_prob": 0.501392259039739,
+          "actual_rate": 0.5746158745322825,
+          "naive_predicted_prob": 0.5012612845239396,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.49824210489391746
         },
@@ -89,8 +89,8 @@
           "test_start": "2024-03-12",
           "test_end": "2024-08-28",
           "n_test": 50335,
-          "actual_rate": 0.5395318064177158,
-          "naive_predicted_prob": 0.5261608548250394,
+          "actual_rate": 0.5395092716906972,
+          "naive_predicted_prob": 0.5260047013295239,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5175574171508914
         },
@@ -102,7 +102,7 @@
           "test_end": "2025-03-25",
           "n_test": 52662,
           "actual_rate": 0.4256056659983886,
-          "naive_predicted_prob": 0.524330467707773,
+          "naive_predicted_prob": 0.5242021413848269,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5133081215179925
         },
@@ -114,7 +114,7 @@
           "test_end": "2025-10-24",
           "n_test": 54346,
           "actual_rate": 0.4433984595495184,
-          "naive_predicted_prob": 0.5079778573754478,
+          "naive_predicted_prob": 0.5078852657888167,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5164445307000517
         },
@@ -126,7 +126,7 @@
           "test_end": "2026-05-27",
           "n_test": 56785,
           "actual_rate": 0.5803913303122914,
-          "naive_predicted_prob": 0.5040676793056681,
+          "naive_predicted_prob": 0.5039916837237673,
           "auc_naive": 0.5,
           "auc_simple_logreg": 0.5136693302260744
         }

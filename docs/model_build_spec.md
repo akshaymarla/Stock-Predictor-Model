@@ -18,6 +18,20 @@
 > windows, not an artifact of anything upstream. The findings below were
 > NOT an artifact of the corruption. Full comparison in the README
 > changelog.
+>
+> **Second, independent re-validation needed (2026-07-20)**: a separate
+> bug in `assemble_feature_matrix.py` (`next_phase_plan.md` Section 0c) —
+> an arbitrary standalone/consolidated tie-break affecting 89% of
+> confirmed-disclosure rows, plus stale disclosures (some from 2023) used
+> with no cutoff, affecting ~a third of the universe — directly touches
+> `fin_sales`/`fin_net_profit`/`fin_opm_pct`/`fin_eps`/`fin_days_since_disclosure`,
+> features that sit at or near the top of every SHAP ranking this project
+> has run (Section 7b: `fin_days_since_disclosure` and `fin_eps` both rank
+> in the top handful). Fixed and `model_feature_matrix` rebuilt 2026-07-20
+> — see README changelog for the fresh re-run and old-vs-new diff. The
+> 0b re-validation above remains valid on its own terms (it addressed a
+> fully separate root cause), but any SHAP ranking or AUC figure below
+> should be read against the 0c-corrected re-run, not the 0b-only one.
 
 Handoff doc for Claude Code. Consolidates the model-design discussion from
 claude.ai into a concrete build spec. Read this alongside

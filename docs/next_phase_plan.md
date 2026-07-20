@@ -91,8 +91,86 @@ visually obvious the way `BRITANNIA`'s 5000-vs-30 split was.
    discovered months later by a downstream symptom the way this one was.
 6. Only after 1-5 are complete: resume Part B.
 
-## PART A — Close known gaps (status below predates the 0b discovery — treat
-as informative history, not current ground truth, until re-run per 0b)
+## 0c. CRITICAL BLOCKER (2026-07-20) — `financial_results` tie-break + staleness bug, same severity tier as 0b
+
+**Found while investigating a suspicious FORTIS figure in the first real
+`weekly_shortlist.py` output — but this is broader and arguably more
+severe than that one symbol, since it touches the majority of
+confirmed-disclosure rows across the whole dataset, not a minority of
+symbols the way the `daily_prices` corruption did.** Treat this with the
+same "stop, fix properly, rebuild downstream, mark prior results pending"
+discipline as 0b — not a smaller presentation-layer patch.
+
+**Bug 1 — arbitrary standalone/consolidated tie-break.**
+`assemble_feature_matrix.py`'s `most_recent_as_of()` picked between
+STANDALONE and CONSOLIDATED financial rows via `bisect_right` with no
+secondary sort key. When both are filed on the same disclosure date —
+**confirmed to be 89% of all confirmed-disclosure rows** — which one got
+used was an arbitrary SQL-tie-order artifact, not a real "most recent"
+decision the schema comment implied. This silently mixed scope
+(standalone vs. consolidated) across `fin_sales`, `fin_net_profit`,
+`fin_opm_pct`, `fin_eps` for most of the model's entire training
+history — not a one-off, and not limited to the symbols checked so far.
+Also confirmed `balance_sheet`, `cash_flow`, and `ratios` all carry the
+same `result_type` column and are equally exposed, even though
+`result_type` wasn't being selected for them.
+
+**Bug 2 — stale disclosures used as if current, no cutoff.** A
+disclosure from 2023 was technically "the most recent confirmed one" if
+nothing newer matched `financial_results`'s disclosure-date logic — so it
+got used as current data in 2026, rather than being treated as missing.
+Confirmed via FORTIS (frozen on a Q1 FY24 standalone figure — ₹13 Cr —
+while the real current standalone figure is ₹25 Cr, consolidated ₹271 Cr)
+and BHARATFORG independently. **Scope, checked against the full
+universe, not just these two names**: 46/498 symbols have zero confirmed
+disclosures ever; 127/498 are >180 days stale, several stuck as far back
+as 2023 (`BALRAMCHIN`, `CONCORDBIO`, `HEROMOTOCO`, `JUBLFOOD`, among
+others). This is a standing gap affecting roughly a third of the
+universe, not something that resolves itself as new data arrives.
+
+**Fix applied 2026-07-20 (`src/assemble_feature_matrix.py`)**:
+1. `load_disclosure_series()` now orders CONSOLIDATED after STANDALONE on
+   tied disclosure dates (`financial_results`/`balance_sheet`/
+   `cash_flow`/`ratios` — all four carry `result_type`), so
+   `most_recent_as_of()`'s bisect tie-break deterministically picks
+   CONSOLIDATED — matches what a human would actually cross-check against
+   news coverage, and the more complete picture for companies with
+   material subsidiary operations (exactly the structural situation that
+   exposed this bug via FORTIS). Verified directly: RELIANCE now
+   resolves to its real CONSOLIDATED Q4 FY26 figures.
+2. `most_recent_as_of()` (and `institutional_trend_as_of()`, which has its
+   own separate bisect) now take `MAX_DISCLOSURE_STALENESS_DAYS = 240`
+   (~2.67 quarters — generous enough that one late filing doesn't flap,
+   tight enough to catch a disclosure stuck multiple quarters back) and
+   return `None` past that cutoff instead of a stale row — applied
+   uniformly to every disclosure-based join (fin/bs/cf/ratio/sh/
+   institutional), not just `financial_results`, since they all share the
+   identical join pattern and are equally exposed. Verified directly:
+   FORTIS and BHARATFORG (both stuck >1000 days) now correctly resolve to
+   `None` instead of the wrong stale figure.
+3. `model_feature_matrix` rebuilt from scratch on the fixed pipeline —
+   not patched incrementally, same discipline as 0b.
+4. Baselines → LightGBM → SHAP → backtest → decision layer re-run fresh —
+   see README changelog for the old-vs-new diff.
+5. `weekly_shortlist.py`'s financial figures are now trustworthy for real
+   use (previously only honestly labeled, not fixed). The
+   `[standalone]`/`[consolidated]` labeling added to the shortlist
+   presentation layer on 2026-07-20 stays valuable regardless — CONSOLIDATED
+   will now be what's shown whenever both exist, but the label keeps that
+   visible rather than implicit.
+
+**Relationship to 0b**: independent root causes (0b is a price-history
+API bug, this is a feature-assembly join/tie-break bug), but the same
+category of problem — silent, structural, affecting a large fraction of
+the universe, undetected until an unrelated downstream step (0b: a
+portfolio backtest's absurd return; 0c: a weekly shortlist's implausible
+company figure) surfaced it by accident. Worth treating both as evidence
+that more automated sanity-checking (per 0b's Section 5 requirement) is
+underinvested relative to how much this project depends on trusting the
+feature pipeline.
+
+## PART A — Close known gaps (status below predates the 0b/0c discoveries — treat
+as informative history, not current ground truth, until re-run per 0b/0c)
 
 ## 1. Wire in sector features (or confirm they're already built and just not feeding the model)
 
@@ -312,24 +390,37 @@ layer on top:
   this explicitly against the same fold/backtest framework, not by
   assumption.
 
-  **RESULT (2026-07-20)**: tested via `models/decision_layer.py`. A
-  first look using simple per-fold arithmetic averaging suggested exposure
-  scaling reduces mean return for the drawdown protection -- a real but
-  ordinary trade-off. **Independent review caught that this was the wrong
-  lens**: arithmetic averaging understates drawdown protection because a
-  large loss compounds against subsequent gains rather than averaging
-  away cleanly. Chaining all 5 folds into one sequential compounded
-  equity curve and computing Calmar ratio (compounded return / max
-  drawdown) instead: 14d Calmar goes from 4.61 (baseline) to 7.06 (half
-  exposure) to 14.81 (zero exposure on negative regime); 30d from 3.91 to
-  6.20 to 11.97. On a risk-adjusted, compounded basis this is not a
-  marginal trade -- it's a 3x+ improvement in return-per-unit-of-drawdown,
-  even though absolute compounded return is lower (14d: +97.2% baseline
-  vs. +75.8% at zero exposure). See README changelog for the full table
-  and the corrected write-up. Which of these to actually deploy remains a
-  real, undecided choice -- it depends on what the eventual use case
-  weighs more, average outcome or worst-case outcome, not something to
-  default silently.
+  **RESULT (2026-07-20, superseded same-day by the 0c re-run below)**:
+  tested via `models/decision_layer.py`. A first look using simple
+  per-fold arithmetic averaging suggested exposure scaling reduces mean
+  return for the drawdown protection -- a real but ordinary trade-off.
+  **Independent review caught that this was the wrong lens**: arithmetic
+  averaging understates drawdown protection because a large loss
+  compounds against subsequent gains rather than averaging away cleanly.
+  Chaining all 5 folds into one sequential compounded equity curve and
+  computing Calmar ratio (compounded return / max drawdown) instead: 14d
+  Calmar goes from 4.61 (baseline) to 7.06 (half exposure) to 14.81 (zero
+  exposure on negative regime); 30d from 3.91 to 6.20 to 11.97.
+
+  **RESULT, corrected (2026-07-20, same day, after the 0c fix)**: this
+  run was on data still affected by the Section 0c bug
+  (`financial_results` tie-break + staleness). Re-ran on the 0c-corrected
+  `model_feature_matrix`: **14d Calmar goes from 3.95 (baseline) to 5.18
+  (half exposure) to 4.72 (zero exposure)** -- half-exposure now has the
+  BEST Calmar, beating zero-exposure. This reverses the earlier
+  conclusion, not just shrinks it: going all the way to cash is no longer
+  optimal at 14d, there's an interior optimum instead. **30d held
+  directionally** (3.91→2.34, 6.20→3.93, 11.97→5.93 -- still monotonically
+  improving with more de-risking, zero-exposure still best) but the
+  magnitude roughly halved. The original 14.81/11.97 figures were partly
+  an artifact of 0c's noise, not a clean signal -- exactly the scenario
+  the "verify the raw JSON before treating anything as confirmed"
+  discipline exists for. See README changelog for the full before/after
+  table. Which variant to actually deploy remains a real, undecided
+  choice -- it depends on what the eventual use case weighs more, average
+  outcome or worst-case outcome, not something to default silently -- but
+  the corrected numbers materially change what that choice is weighing,
+  especially at 14d.
 
 This section is explicitly downstream of Section 4 — don't design the
 decision layer in a vacuum before seeing what the backtest actually shows
@@ -337,11 +428,17 @@ about achievable, cost-adjusted performance.
 
 ## 6. Build order
 
-0. **Section 0b (`daily_prices` remediation) — supersedes everything
-   below.** Do not start or continue Part A/B work until 0b's steps 1-5
-   are complete. Any Part A work done before 0b's fix (sector features,
-   catalyst detection, `fin_opm_pct`) should be re-checked once clean
-   data is in place — those findings predate the corruption discovery.
+0. **Sections 0b (`daily_prices` remediation) and 0c (`financial_results`
+   tie-break + staleness) — both supersede everything below.** Do not
+   start or continue Part A/B work, and do not trust `weekly_shortlist.py`'s
+   financial figures for real decisions, until both are fully remediated.
+   They're independent bugs with independent fixes and can be worked in
+   parallel with each other, but both gate everything after Part A. Any
+   Part A work done before either fix (sector features, catalyst
+   detection, `fin_opm_pct`) should be re-checked once clean data is in
+   place — those findings predate both discoveries. **Both fixed as of
+   2026-07-20** — see 0b/0c above and the README changelog for the
+   re-run diff.
 1. Section 1 (sector features) and Section 3 (`fin_opm_pct`) can be done
    in parallel — independent of each other.
 2. Section 2 (catalyst detection) — independent, can also run in
@@ -439,3 +536,22 @@ about achievable, cost-adjusted performance.
       iteration specifically targets cadence.
 - [x] README.md status table + changelog updated per CLAUDE.md's standing
       instruction
+
+**0c items (added 2026-07-20, see Section 0c above):**
+
+- [x] `most_recent_as_of()`'s standalone/consolidated tie-break fixed
+      (prefer CONSOLIDATED when both exist on the same disclosure date) —
+      verified directly against RELIANCE
+- [x] Explicit staleness cutoff added (240 days) — stale disclosures
+      treated as NULL, not used as if current — verified directly against
+      FORTIS/BHARATFORG (both now correctly resolve to None)
+- [x] `model_feature_matrix` rebuilt from scratch after the above two
+      fixes, not patched incrementally
+- [x] Baselines/LightGBM/SHAP/backtest/decision-layer re-run on the
+      rebuilt matrix, old vs. new numbers explicitly diffed — see README
+      changelog. Real, non-trivial shifts found: an SHAP ranking reversal
+      (`sh_inst_pctrank` vs. `sh_inst_total_pct`), fold-level backtest
+      moves in both directions, and a genuine decision-layer reversal at
+      14d (half-exposure now beats zero-exposure on Calmar, not the other
+      way around) — not just noise, documented precisely rather than
+      averaged over
