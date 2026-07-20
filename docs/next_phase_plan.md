@@ -285,6 +285,32 @@ layer on top:
 - **Rebalance cadence**: matches the label horizon by default; note
   whether a different cadence (e.g. rebalancing more/less frequently than
   the label horizon) was considered and why or why not.
+- **Regime-based exposure scaling (added 2026-07-20, post-backtest
+  finding)**: fold 3's real drawdown (-20.0% vs. Nifty's -11.4% at 14d
+  N=20) is a genuine unmanaged-tail-risk finding, not a detail to smooth
+  over with sizing alone -- this is a pure ranking strategy with no
+  defensive hedge, and "relatively better" stock picks still lose money
+  faster than the benchmark in a broad selloff. Confirmed via direct
+  investigation: fold 3 WAS identifiable in advance -- it's the only
+  fold (across both horizons) where `nifty50_dist_50dma_pct` reads
+  negative at test_start (every other fold starts with the market above
+  its 50-day average), and its `nifty50_return_10d` is the most negative
+  of any fold. These are features the model already sees and weights
+  heavily for individual stock ranking (`nifty50_dist_50dma_pct` is a
+  top-2 SHAP feature) but the current top-N-always-invested strategy
+  never uses at the portfolio-exposure level. Also confirmed the 30d
+  fold 2 "random beats model" result is a genuine broad-market-rally /
+  low-dispersion effect, not a single lucky draw (all 20 random draws in
+  that fold's first rebalance period were positive, tightly clustered) --
+  when stocks move together, which ones you pick matters less. Both
+  findings point the same direction: test whether a regime filter
+  (`nifty50_dist_50dma_pct` and/or `nifty50_return_10d` below a
+  threshold at the rebalance date) that reduces total exposure --
+  scaling down position sizes or moving partially to cash rather than
+  always deploying full capital into top-N -- actually improves the
+  drawdown profile without giving up too much upside elsewhere. Test
+  this explicitly against the same fold/backtest framework, not by
+  assumption.
 
 This section is explicitly downstream of Section 4 — don't design the
 decision layer in a vacuum before seeing what the backtest actually shows
@@ -381,5 +407,16 @@ about achievable, cost-adjusted performance.
       individually reported — see README changelog for the full result
 - [x] Multiple top-N values tested and reported (10/20/30), not a single
       arbitrary choice
+- [x] Section 5's three questions (position sizing, minimum probability
+      threshold, rebalance cadence) tested against the same fold/model/
+      cost infrastructure as Section 4, not decided by default — plus the
+      regime-exposure-scaling addition, motivated by and tested against
+      the real fold-3 drawdown finding rather than designed speculatively.
+      Rebalance cadence: kept matching the label horizon (14d model
+      rebalances every 14 trading days, 30d every 30) — a different
+      cadence wasn't tested, since nothing in the Section 4/5 results
+      suggested a mismatch between rebalance frequency and label horizon
+      was the binding constraint here; worth revisiting if a future
+      iteration specifically targets cadence.
 - [x] README.md status table + changelog updated per CLAUDE.md's standing
       instruction

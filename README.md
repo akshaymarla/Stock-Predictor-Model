@@ -260,6 +260,59 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-20 (Section 5: decision layer -- tested, not assumed)**:
+  Before building this, investigated two open questions from the Part B
+  backtest result rather than designing in a vacuum:
+
+  **Was fold 3 (the down-market fold with the bad drawdown) identifiable
+  in advance?** Yes, confirmed directly: it's the only fold (both
+  horizons) where `nifty50_dist_50dma_pct` reads negative at test_start
+  (every other fold starts with the market above its 50-day average), and
+  its `nifty50_return_10d` is the most negative of any fold. These are
+  features the model already sees and weights heavily for individual
+  stock ranking (`nifty50_dist_50dma_pct` is a top-2 SHAP feature at both
+  horizons) but the Section 4 strategy never used at the portfolio-
+  exposure level -- it's always fully invested in top-N regardless of
+  regime.
+
+  **Was the 30d fold 2 "random beats model" result one lucky draw?** No --
+  reconstructed the exact 20 random draws (same RNG seed) for that fold's
+  first rebalance period: all 20 were positive, tightly clustered
+  (+4.9% to +13.65%, mean +9.16%). A genuine broad-market-rally /
+  low-dispersion effect, not noise from an unlucky sample -- when nearly
+  every stock moves together, which ones you pick matters less.
+
+  **Built `models/decision_layer.py`**, reusing Section 4's exact
+  fold/model/cost infrastructure for a fair comparison, testing all three
+  spec questions plus a regime-exposure variant motivated by the finding
+  above:
+  - **Regime-based exposure scaling** (reduce total exposure when
+    `nifty50_dist_50dma_pct` < 0 at the rebalance date): works exactly as
+    designed, with a real cost, not a free lunch. In fold 3 specifically,
+    halves-to-eliminates the loss and drawdown (14d: -7.7%/-20.0% dd ->
+    -3.8%/-10.6% dd at half exposure, -0.25%/-0.25% dd at zero exposure;
+    30d: -16.4%/-16.9% dd -> -8.3%/-8.6% dd -> 0%/0% dd). But in fold 1
+    (a strong up-market fold), it gives up real upside (14d: +48.1% ->
+    +39.6% / +31.3%; 30d: +44.4% -> +35.3% / +26.2%). **On simple average
+    across all 5 folds, exposure scaling reduces mean return** (14d:
+    15.9% -> 14.3% -> 12.5%; 30d: 12.8% -> 10.6% -> 8.5%) while
+    meaningfully compressing the worst-case outcome -- a genuine
+    risk-tolerance trade-off, not something to bake in silently as a
+    strict improvement.
+  - **Probability-weighted position sizing**: mixed, mostly small
+    effects either direction. One standout: 30d fold 5 improved on BOTH
+    return (+15.3% -> +19.8%) and drawdown (-3.0% -> -0.4%)
+    simultaneously. Not a dominant strategy, but not nothing.
+  - **Minimum probability threshold (0.5)**: essentially a null result --
+    rarely bound at all, since the model's own top-N picks were already
+    above 0.5 in nearly every period tested. Honest finding, not chased
+    further with a higher threshold value given time constraints.
+
+  Full per-fold, per-variant numbers in
+  `models/reports/decision_layer_report.json`. `next_phase_plan.md`
+  Section 5 updated with the regime-scaling addition and rationale before
+  this was built, not after.
+
 - **2026-07-20 (Part B: portfolio backtest run -- the actual "does this
   make money" test)**: `models/backtest.py` run for real on clean data
   (the corruption bug surfaced it before it could produce trustworthy
