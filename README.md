@@ -280,6 +280,67 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-22 (first real production run — hit 3 real bugs, all fixed, Lot 2 made for real)**:
+  The scheduled 9pm run never fired (Mac rebooted ~20:41, killing the
+  background `sleep`/`caffeinate` job — a real limitation of that
+  approach, no crontab/launchd involved so it couldn't survive a
+  restart). Ran the chain by hand afterward instead, which surfaced a
+  chain of three real, connected bugs:
+  1. **`scoring_date` never advanced.** `daily_prices` landed on 07-21,
+     `macro_regime_indicators` landed on 07-22, with no overlapping date
+     past 07-15 — both tables had gaps from the ~week nightly wasn't
+     running, and neither fetch script backfills a range by default
+     (single-latest-day only, by design). `weekly_shortlist.py` silently
+     scored against the same `pick_date` as Lot 1.
+  2. **That caused real data corruption**: since `weekly_shortlist.py`
+     produced a genuinely different top-20 on the same `pick_date`,
+     `log_shortlist_picks.py`'s per-symbol-only conflict check let the
+     new, different symbols get appended alongside Lot 1's original 20
+     rather than being rejected as a duplicate batch — `tracked_picks`
+     grew to 31/28 rows instead of 20/20. **Fixed in two parts**: (a)
+     deleted the 11+8 extra rows, using the already-frozen
+     `models/lots/lot_1_2026-07-15.json` as ground truth for exactly
+     which symbols legitimately belonged (Lot 1's on-disk/on-site file
+     was never touched — `freeze_lot.py`'s idempotent-by-pick_date check
+     correctly did nothing both times); (b) `log_shortlist_picks.py` now
+     checks for ANY existing row at a `(horizon, pick_date)` pair up
+     front and skips the whole batch, instead of only guarding
+     per-symbol — a `pick_date` is meant to be one atomic, already-logged
+     unit, never partially appended to.
+  3. **A genuine upstream date-mislabeling bug**, found while backfilling
+     the gap: fetching `daily_prices` for 16-07-2026→21-07-2026 returned
+     a row correctly chained by `prev_close` to its neighbors (so the
+     underlying price data was real) but tagged `date='2026-07-19'` — a
+     **Sunday**, not a real trading day — consistently across every one
+     of 499 symbols. The actual Friday (07-17) was simultaneously
+     missing. This traces to the underlying `jugaad_data`/NSE archive
+     source (the DATE field jugaad_data returns), not this project's own
+     date-range logic (which just passes a fixed from/to boundary
+     through). Verified no legitimate 07-17 or 07-19 rows existed before
+     acting, then renamed the 499 mislabeled rows from 07-19 → 07-17 by
+     hand. Backfilled the same 07-16→07-21 gap in
+     `macro_regime_indicators` (no mislabeling there — different source,
+     `NSE_INDICES_ARCHIVE`), then recomputed `model_target_labels` and
+     `model_feature_matrix` on the corrected data.
+  - With the gap actually closed, re-ran `weekly_shortlist.py` for real
+    — genuinely new top-20s on `pick_date=2026-07-21` (BAJAJHLDNG/
+    KOTAKBANK/... at 61.8% for 14D; ICICIAMC/UTIAMC/... at 77.6%/76.3%
+    for 30D), froze it as **Lot 2**, republished the site. Both lots now
+    correctly distinct and visible.
+  - Also fixed two frontend bugs found by inspection right after Lot 1
+    was frozen (before any of the above): `app.js` called
+    `renderLotTiles()`/`formatDate()` at load time before the `MONTHS`
+    array (a `var` declared further down the file) was ever assigned —
+    throwing and silently halting every statement after it in the same
+    top-level script, which is why the ticker, Overview, and Statistical
+    View all appeared simultaneously broken from one root cause. Moved
+    all helpers before first use. Separately, `.ticker-header`'s and
+    `.compare-search-row`'s own `display` property was overriding the
+    `[hidden]` attribute's `display: none` (equal CSS specificity, author
+    styles win), so the ticker header showed on the Home page regardless
+    of what `app.js` set `.hidden` to. Both fixed and visually confirmed
+    in Safari.
+
 - **2026-07-22 (lots: freeze each real batch of picks, stop live-scoring on every export)**:
   Direct instruction: run the pipeline tonight for a real first "final
   cut," then freeze that batch until told otherwise — future runs happen

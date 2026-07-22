@@ -10,6 +10,12 @@ __pycache__/
 # screenerScraper.py's downloaded BSE ticker/token cache (public metadata,
 # not secrets, but a runtime artifact re-fetched daily -- not source code)
 src/tokens/
+# same cache, but lands at the repo root instead of src/tokens/ when the
+# fetch is invoked from run_nightly.sh (which cd's to the repo root) --
+# a real cwd-relative-path inconsistency in screenerScraper.py/
+# screener_common.py, not yet fixed at the source; ignoring both
+# locations until it is
+tokens/
 models/artifacts/
 
 # models/reports/ is gitignored -- full verbose reports are large/ephemeral --

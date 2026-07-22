@@ -1,0 +1,144 @@
+{
+  "run_type": "weekly_shortlist",
+  "run_date": "2026-07-22",
+  "git_commit": "92cb66b",
+  "notes": "",
+  "scoring_date": "2026-07-15",
+  "universe": {
+    "index_membership_snapshot_date": "2026-07-22",
+    "total_in_snapshot": 500,
+    "excluded_surveillance": 13,
+    "excluded_no_recent_price_data": 1,
+    "excluded_illiquid_bottom_decile": 49,
+    "eligible": 437
+  },
+  "regime": {
+    "as_of_date": "2026-07-15",
+    "india_vix_close": 13.27,
+    "vix_percentile_1y": 0.6190476190476191,
+    "nifty50_dist_50dma_pct": 1.0403,
+    "nifty50_return_10d": 0.3026,
+    "flags": [],
+    "note": "informational only -- does not filter or block the shortlist"
+  },
+  "horizons": {
+    "14d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-03-04",
+      "calib_start": "2026-03-25",
+      "calib_end": "2026-06-24",
+      "calib_auc_raw": 0.5638951594917,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "CUB",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 2,
+          "symbol": "BAJAJHLDNG",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 3,
+          "symbol": "APOLLOTYRE",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 4,
+          "symbol": "PETRONET",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 5,
+          "symbol": "GESHIP",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 6,
+          "symbol": "SAMMAANCAP",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 7,
+          "symbol": "SAILIFE",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 8,
+          "symbol": "ANTHEM",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 9,
+          "symbol": "M&M",
+          "calibrated_prob": 0.7045790251107827
+        },
+        {
+          "rank": 10,
+          "symbol": "KAJARIACER",
+          "calibrated_prob": 0.7045790251107827
+        }
+      ]
+    },
+    "30d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-01-16",
+      "calib_start": "2026-03-02",
+      "calib_end": "2026-06-02",
+      "calib_auc_raw": 0.6007288140218965,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "PPLPHARMA",
+          "calibrated_prob": 0.7669172932330827
+        },
+        {
+          "rank": 2,
+          "symbol": "OFSS",
+          "calibrated_prob": 0.7669172932330827
+        },
+        {
+          "rank": 3,
+          "symbol": "RKFORGE",
+          "calibrated_prob": 0.7516339869281045
+        },
+        {
+          "rank": 4,
+          "symbol": "SAMMAANCAP",
+          "calibrated_prob": 0.7437722419928824
+        },
+        {
+          "rank": 5,
+          "symbol": "URBANCO",
+          "calibrated_prob": 0.7437722419928824
+        },
+        {
+          "rank": 6,
+          "symbol": "BPCL",
+          "calibrated_prob": 0.7437722419928824
+        },
+        {
+          "rank": 7,
+          "symbol": "CANHLIFE",
+          "calibrated_prob": 0.7437722419928824
+        },
+        {
+          "rank": 8,
+          "symbol": "TORNTPOWER",
+          "calibrated_prob": 0.7437722419928824
+        },
+        {
+          "rank": 9,
+          "symbol": "CESC",
+          "calibrated_prob": 0.7437722419928824
+        },
+        {
+          "rank": 10,
+          "symbol": "CHOLAHLDNG",
+          "calibrated_prob": 0.7437722419928824
+        }
+      ]
+    }
+  }
+}

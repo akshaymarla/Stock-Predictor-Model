@@ -13,6 +13,20 @@ UPDATE) for exactly this reason: a re-run against the same
 (symbol, horizon, pick_date) must never silently overwrite an existing
 frozen record.
 
+WHOLE-BATCH GUARD (added 2026-07-22 after a real incident): a
+(horizon, pick_date) pair is treated as one atomic, already-logged
+batch -- if ANY row already exists for that pair, this skips the ENTIRE
+call rather than inserting per-symbol. The original per-symbol-only
+ON CONFLICT check let this actually happen: weekly_shortlist.py was
+re-run on a day when the pipeline's scoring_date hadn't advanced (a
+daily_prices/macro_regime_indicators date-gap bug), producing a
+genuinely different top-20 ranking that still landed on the SAME
+pick_date as an already-frozen lot -- since those new symbols weren't
+already in tracked_picks, they weren't a per-symbol conflict, so they
+got appended alongside the original 20, silently growing a supposedly
+frozen batch to 31/28 rows. Cleaned up by hand once found; this guard is
+what makes sure it can't happen again.
+
 Entry price reuses backtest.py's price_at_or_before() directly (latest
 close <= pick_date) rather than reimplementing the same "what does
 buying on this date actually mean" logic a second way.
@@ -53,8 +67,17 @@ def estimate_target_close_date(pick_date: str, trading_days: int) -> str:
 
 def log_picks(conn, horizon_label: str, scoring_date: str, shortlist: list) -> int:
     """Inserts one tracked_picks row per shortlisted stock. Returns the
-    number of rows actually inserted (existing frozen rows for the same
-    key are left untouched, not counted)."""
+    number of rows actually inserted (0 if this (horizon, pick_date)
+    batch was already logged -- see the whole-batch-guard note above)."""
+    existing = conn.execute(
+        "SELECT COUNT(*) FROM tracked_picks WHERE horizon = ? AND pick_date = ?",
+        (horizon_label, scoring_date),
+    ).fetchone()[0]
+    if existing:
+        print(f"  log_shortlist_picks: {horizon_label} @ {scoring_date} already has {existing} row(s) logged "
+              f"-- skipping this whole batch (never partially append to an existing pick_date).")
+        return 0
+
     price_lookup = load_price_lookup(conn)
     fetched_at = datetime.now().isoformat()
     trading_days = HORIZON_TRADING_DAYS[horizon_label]

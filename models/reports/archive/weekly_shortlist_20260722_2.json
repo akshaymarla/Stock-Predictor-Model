@@ -1,0 +1,144 @@
+{
+  "run_type": "weekly_shortlist",
+  "run_date": "2026-07-22",
+  "git_commit": "92cb66b",
+  "notes": "",
+  "scoring_date": "2026-07-21",
+  "universe": {
+    "index_membership_snapshot_date": "2026-07-22",
+    "total_in_snapshot": 500,
+    "excluded_surveillance": 13,
+    "excluded_no_recent_price_data": 0,
+    "excluded_illiquid_bottom_decile": 49,
+    "eligible": 438
+  },
+  "regime": {
+    "as_of_date": "2026-07-21",
+    "india_vix_close": 12.6,
+    "vix_percentile_1y": 0.5515873015873016,
+    "nifty50_dist_50dma_pct": 1.5014,
+    "nifty50_return_10d": -0.8648,
+    "flags": [],
+    "note": "informational only -- does not filter or block the shortlist"
+  },
+  "horizons": {
+    "14d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-03-10",
+      "calib_start": "2026-04-02",
+      "calib_end": "2026-07-01",
+      "calib_auc_raw": 0.5310284186433886,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "BAJAJHLDNG",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 2,
+          "symbol": "KOTAKBANK",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 3,
+          "symbol": "SAMMAANCAP",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 4,
+          "symbol": "AXISBANK",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 5,
+          "symbol": "OFSS",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 6,
+          "symbol": "IGIL",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 7,
+          "symbol": "URBANCO",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 8,
+          "symbol": "UTIAMC",
+          "calibrated_prob": 0.6178861788617886
+        },
+        {
+          "rank": 9,
+          "symbol": "NAVINFLUOR",
+          "calibrated_prob": 0.5823400804005924
+        },
+        {
+          "rank": 10,
+          "symbol": "NLCINDIA",
+          "calibrated_prob": 0.5823400804005924
+        }
+      ]
+    },
+    "30d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-01-22",
+      "calib_start": "2026-03-09",
+      "calib_end": "2026-06-08",
+      "calib_auc_raw": 0.5943416987516237,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "ICICIAMC",
+          "calibrated_prob": 0.7763578274760383
+        },
+        {
+          "rank": 2,
+          "symbol": "UTIAMC",
+          "calibrated_prob": 0.7625231910946196
+        },
+        {
+          "rank": 3,
+          "symbol": "KOTAKBANK",
+          "calibrated_prob": 0.7554716981132076
+        },
+        {
+          "rank": 4,
+          "symbol": "NAM-INDIA",
+          "calibrated_prob": 0.7554716981132076
+        },
+        {
+          "rank": 5,
+          "symbol": "CUB",
+          "calibrated_prob": 0.7366609294320138
+        },
+        {
+          "rank": 6,
+          "symbol": "HYUNDAI",
+          "calibrated_prob": 0.7366609294320138
+        },
+        {
+          "rank": 7,
+          "symbol": "NAUKRI",
+          "calibrated_prob": 0.7366609294320138
+        },
+        {
+          "rank": 8,
+          "symbol": "OFSS",
+          "calibrated_prob": 0.7366609294320138
+        },
+        {
+          "rank": 9,
+          "symbol": "RKFORGE",
+          "calibrated_prob": 0.7366609294320138
+        },
+        {
+          "rank": 10,
+          "symbol": "SAMMAANCAP",
+          "calibrated_prob": 0.7152542372881356
+        }
+      ]
+    }
+  }
+}
