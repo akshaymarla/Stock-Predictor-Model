@@ -48,10 +48,18 @@
         <button class="home-cta" data-goto="overview">Go to Overview &rarr;</button>
       </section>
 
-      <!-- ================= OVERVIEW (existing build, unchanged behavior) ================= -->
+      <!-- ================= OVERVIEW ================= -->
       <section id="section-overview" class="app-section" hidden>
 
-        <section id="screen-picker" class="screen">
+        <section id="overview-lot-picker" class="screen">
+          <div class="lot-picker-intro">Choose a batch of picks to view</div>
+          <div class="lot-tiles" id="overview-lot-tiles"></div>
+          <div id="overview-lot-empty" class="deck-empty" hidden>No lots have been frozen yet -- run weekly_shortlist.py, then src/freeze_lot.py.</div>
+        </section>
+
+        <section id="screen-picker" class="screen" hidden>
+          <button class="lot-back-button" data-back-to="overview-lot-picker">&larr; CHOOSE A DIFFERENT LOT</button>
+          <div id="overview-lot-banner" class="lot-banner"></div>
           <div class="picker-tiles" id="overview-picker-tiles">
             <button class="picker-tile" data-horizon="14d" aria-label="View 14 day candidates">
               <div class="picker-label">14D</div>
@@ -86,7 +94,15 @@
       <!-- ================= STATISTICAL VIEW ================= -->
       <section id="section-statistical" class="app-section" hidden>
 
-        <div id="stat-picker" class="screen">
+        <section id="stat-lot-picker" class="screen">
+          <div class="lot-picker-intro">Choose a batch of picks to view</div>
+          <div class="lot-tiles" id="stat-lot-tiles"></div>
+          <div id="stat-lot-empty" class="deck-empty" hidden>No lots have been frozen yet -- run weekly_shortlist.py, then src/freeze_lot.py.</div>
+        </section>
+
+        <div id="stat-picker" class="screen" hidden>
+          <button class="lot-back-button" data-back-to="stat-lot-picker">&larr; CHOOSE A DIFFERENT LOT</button>
+          <div id="stat-lot-banner" class="lot-banner"></div>
           <div class="picker-tiles" id="stat-picker-tiles">
             <button class="picker-tile" data-horizon="14d" aria-label="View 14 day tracking table">
               <div class="picker-label">14D</div>

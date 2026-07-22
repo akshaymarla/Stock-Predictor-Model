@@ -34,3 +34,11 @@ models/shortlists/
 # to survive rebuilds" status as models/shortlists/.
 frontend/data.js
 frontend/universe.js
+
+# models/lots/ -- every "batch" of frozen picks ever made (src/freeze_lot.py),
+# kept permanently ON DISK per explicit instruction ("we still store them
+# in our folders") but not in git -- same reasoning as models/shortlists/:
+# these are large, accumulating, machine-generated snapshots, not source.
+# The record survives as long as the local models/lots/ directory does;
+# nothing here is meant to be recovered from git history.
+models/lots/

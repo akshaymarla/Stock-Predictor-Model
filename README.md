@@ -28,6 +28,7 @@ progress — check the bottom of this file for the latest status.
 | `models/reports/tracking_dashboard.html` (not a DB table) | `src/generate_tracking_dashboard.py` | **New 2026-07-21** -- single self-contained HTML file (Chart.js via CDN), regenerated on demand. Confirmed rendering correctly against both an empty table and the real 40-row state (open-position day-by-day trend charts, hit-rate-by-calibration-bucket section reusing `evaluate.calibration_curve()`, sortable resolved-picks table, delisted section) -- hit-rate/resolved/delisted sections have no real data to show yet since nothing has resolved. Gitignored under the existing `models/reports/*` rule; the DB table is the persistent source of truth |
 | `frontend/` (not a DB table) | `src/export_screener_data.py` (data), `frontend/index.html`+`styles.css`+`app.js` (UI) | **New 2026-07-22** (`frontend-screener-spec.md`) -- plain HTML/CSS/JS screener UI (ticker header + 14D/30D model picker + ranked card deck), per the spec's own stack-agnostic reference implementation since this repo has no existing frontend stack. **Candidate scope corrected same day**: first shipped as the full ~440-name eligible universe (the spec's own Section 9 Q4 was initially resolved that way), but confirmed by real use to be unscannable -- reverted to each horizon's actual top-20 selection (matching `weekly_shortlist.py`'s own established top-N convention), computed as the union of both horizons' top-20 (35 unique names in the real run, 5 overlap) so a stock can still legitimately appear on only one horizon's tab. Both horizon models still score the full eligible universe internally (`export_screener_data.py` reuses `weekly_shortlist.py`'s `train_production_model()`/`load_universe()` directly, skips its SHAP pass since the card UI doesn't show per-stock factors) -- exporting/ranking is what's now scoped down, not the underlying scoring, so rankings stay exact. The frontend re-slices to this horizon's own top-20 client-side (`app.js`) rather than showing the full union on every tab -- provably correct since a stock genuinely in a horizon's true top-20 is always in the union by construction, so sorting the union by that horizon's probability and taking the top 20 reproduces the true top-20 exactly. Real re-run's top-5-by-horizon matched the earlier standalone `weekly_shortlist.py` run's output exactly (ICICIAMC/SAILIFE/SAMMAANCAP/INDUSTOWER at 68.8% for 14d; HINDPETRO/RKFORGE at 77.8% for 30d) -- `data.js` shrank from 130KB/440 candidates to 11KB/35. `model_meta.status`/notes are derived for real from `tracked_picks`' live hit rate (reuses `generate_tracking_dashboard.py`'s calculation) -- currently `"provisional"` since 0 picks have resolved yet, not hardcoded. `is_stale` correctly showed `true` in the real output since the pipeline's confirmed scoring date (2026-07-15) lags real "today" (2026-07-22, nightly hasn't run since). Data file (`frontend/data.js`) is a plain `<script src>` include, not a `fetch()`'d JSON file -- deliberately, so the page still opens directly with zero server (file:// pages can't `fetch()` JSON in most browsers) -- and is gitignored/regenerated on demand, same status as `models/shortlists/*`. HTML/CSS/JS structurally validated (balanced tags/braces/parens) and visually confirmed loading correctly in Safari (page title + DOM confirmed via URL query) -- full interactive click-through not automated, user asked not to proceed with the JS-injection approach tried for that; visual/interaction spot-check by eye is still recommended before treating this as fully confirmed |
 | `frontend/` v2 restructure | `src/export_screener_data.py` (+tracking/universe_snapshot), `frontend/*` (sidebar shell) | **New 2026-07-22** (`frontend-spec-v2-sidebar-nav.md`) -- renamed to "Nifty Alpha Predictor," restructured the single-screen build behind a left sidebar into 4 sections (Home, Overview, Statistical View, Other Stocks — To Compare), reusing the existing Overview render logic unchanged. **Key interpretation call**: the Statistical View's day-by-day tracking table is built from the REAL `tracked_picks` table (the actual picks `weekly_shortlist.py` already logged, currently pick_date 2026-07-15/20 names per horizon), not a fresh top-N recomputed by `export_screener_data.py` each run — the spec's own text ("matches the out-of-sample tracking just started note already in `data.model_meta.notes`") points directly at `tracked_picks`, and a fresh-every-run set would just reset to all-nulls on every export instead of accumulating real history. `trading_days` columns use real trading-calendar dates for whatever's actually elapsed and the same weekend-adjusted estimate convention as `log_shortlist_picks.py` for future columns, so the table shape never changes as real days fill in. Confirmed in the real export: 14 columns, only D+0 has real data (`close`/`day_change_pct` populated), D+1 onward correctly `null` — expected, since `scoring_date` is by definition the newest confirmed day. The Compare section's full-Nifty-500 lookup (`universe_snapshot`, `frontend/universe.js`) reuses `backtest.py`'s `price_at_or_before()`/`load_price_lookup()` directly for every lookback (trading-day-based for d3/d7/d14, calendar-month/year with prior-trading-day fallback for m1/m6/y1, per the spec's own stated convention) — real output's `change_pct_vs_last` formula verified against the spec's own worked RELIANCE example (both give 1.24%/5.81% for the same inputs). `universe.js` (500 stocks) is lazy-loaded only when Compare is first opened, not bundled into the always-loaded `data.js`, per the spec's own build-time-decision note. All open questions in the spec's Section 8 resolved using the spec's own stated defaults (calendar lookback w/ fallback for 1M/6M/1Y, 2-stock-max compare, all top-N rows shown in Statistical View, same export script/cadence for the universe snapshot, "Go to Overview" CTA included) — none required asking the user. Structurally validated (balanced HTML/CSS/JS) and opened successfully in the browser; full interactive click-through across all 4 sections not automated this round (see the note on the v1 row about declined browser-automation) |
+| `models/lots/*` (not a DB table) | `src/freeze_lot.py` (freeze), `src/export_screener_data.py` (publish latest 3 to site) | **New 2026-07-22** — introduces "lots": each `weekly_shortlist.py` run's picks, frozen permanently and shown as a distinct, selectable batch (per direct instruction: make a real first cut tonight, freeze it, never silently overwrite). `freeze_lot.py` reads the latest `tracked_picks.pick_date`, and if `models/lots/lot_<N>_<pick_date>.json` doesn't already exist, builds it — candidates pulled straight from `tracked_picks.calibrated_prob_at_pick` (never re-scored) enriched with company/price/52w-range metadata *as of pick_date* (not "today"), plus a day-by-day tracking table via the same logic the v2 Statistical View already used. Idempotent by pick_date — re-running `weekly_shortlist.py` same-day (itself a no-op) can never double-freeze or overwrite a live lot. `export_screener_data.py` was correspondingly stripped of ALL live model scoring (that only ever happens inside `weekly_shortlist.py` now, on the user's own explicit cadence) — it just reads back whatever's in `models/lots/` and embeds the most recent `MAX_SITE_LOTS=3`; real re-run dropped from ~2 minutes to ~14s CPU with the training removed. `models/lots/` itself is never pruned (gitignored, kept forever locally); only the site's exposure is capped at 3. Frontend: both Overview and Statistical View now open on a lot-picker screen (labeled by real incrementing lot number + `pick_date`, e.g. "LOT 1 — MODEL RUN: 15 Jul 2026", not repositioned "1st/2nd/3rd" text, so labels stay stable once an old lot rolls off) before the existing horizon picker; the selected lot's number/model-run-date is shown on the banner, deck header, and stat table header. Retroactively froze the existing `tracked_picks` data (pick_date 2026-07-15) as **Lot 1**; verified `export_screener_data.py`'s rebuilt `data.js` matches it exactly (rank 1 ICICIAMC @ 68.8% for 14D, matching the original `weekly_shortlist.py` run). Structurally validated; not yet click-through tested in a live browser session for the lot-picker flow specifically |
 
 ## Setup
 
@@ -278,6 +279,51 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-22 (lots: freeze each real batch of picks, stop live-scoring on every export)**:
+  Direct instruction: run the pipeline tonight for a real first "final
+  cut," then freeze that batch until told otherwise — future runs happen
+  only on a condition to be given later, never automatically. This
+  required a real design decision, not just a UI tweak: Overview's
+  candidates had been a fresh top-N re-scored by `export_screener_data.py`
+  on every run (the v1/v2 design) — that's fundamentally incompatible
+  with "freeze until told," since it would silently change every time the
+  script ran again for any reason (e.g. a nightly Compare refresh).
+  - `src/freeze_lot.py`: freezes the latest `tracked_picks.pick_date`
+    into a permanent `models/lots/lot_<N>_<pick_date>.json` — candidates
+    come straight from `calibrated_prob_at_pick` (never re-scored),
+    enriched with metadata as of `pick_date`. Idempotent by pick_date, so
+    it's safe to run nightly as a no-op on days without a new
+    `weekly_shortlist.py` run.
+  - `export_screener_data.py` had its entire model-training/scoring path
+    removed — it now only reads back whatever lots already exist on disk
+    and republishes the most recent `MAX_SITE_LOTS=3` to `data.js`, plus
+    refreshes the live nifty ticker/model_meta/Compare snapshot around
+    them. Real re-run: ~14s CPU, down from ~2 minutes, now that LightGBM
+    training isn't happening on every export.
+  - `models/lots/` is never pruned — every lot ever frozen stays on disk
+    permanently, only the site's exposure is capped at 3, per direct
+    instruction ("we still store them in our folders").
+  - Retroactively froze the existing `tracked_picks` data (pick_date
+    2026-07-15, logged 2026-07-21) as **Lot 1** so it's not lost under
+    the new model.
+  - `run_nightly.sh` now also runs `freeze_lot.py` + `export_screener_data.py`
+    at the tail — safe/cheap, keeps the site's live pieces (ticker,
+    Compare) fresh nightly without ever touching the frozen lots
+    themselves. `weekly_shortlist.py` (the only thing that actually
+    creates a new lot) is deliberately NOT part of this script, matching
+    its pre-existing "run by hand" status.
+  - Frontend: Overview and Statistical View both gained a lot-picker
+    screen before the existing horizon picker. Lots are labeled by their
+    real, permanently-incrementing number + `pick_date` (e.g. "LOT 1 —
+    MODEL RUN: 15 Jul 2026") rather than a repositioned "1st/2nd/3rd" —
+    chose this so a lot's label never changes even after an older one
+    rolls off the site, which a purely positional "1st/2nd/3rd" labeling
+    would not have given.
+  - Verified: rebuilt `data.js` from the frozen Lot 1 exactly matches the
+    original `weekly_shortlist.py` run (rank 1 ICICIAMC @ 68.8% for 14D).
+    HTML/CSS/JS structurally validated; the lot-picker's actual
+    click-through wasn't separately browser-tested this round.
 
 - **2026-07-22 (`frontend-spec-v2-sidebar-nav.md` — sidebar restructure + Statistical View + Compare)**:
   Renamed "Nifty 500 Neglect Screener" → **"Nifty Alpha Predictor"** and

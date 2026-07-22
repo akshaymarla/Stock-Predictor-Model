@@ -74,4 +74,20 @@ echo "--- Resolving tracked picks past their hold period ---"
 # still-open rows), safe to run every night even though shortlists are weekly
 python3 src/resolve_tracked_picks.py
 
+echo "--- Freezing any new lot (no-op most nights) ---"
+# freeze_lot.py only does something on the (rare, explicitly-triggered)
+# nights weekly_shortlist.py was just run -- otherwise it finds the latest
+# tracked_picks pick_date already frozen and exits immediately. Safe/cheap
+# to run every night rather than remembering to call it manually.
+python3 src/freeze_lot.py
+
+echo "--- Refreshing site data (nifty ticker, model_meta, Compare universe snapshot) ---"
+# does NOT create or change lots -- just re-reads whichever lots already
+# exist on disk (models/lots/) and refreshes the live pieces around them
+# (today's Nifty close, tracked_picks hit-rate note, full-universe Compare
+# lookup data). The picks themselves stay frozen until weekly_shortlist.py
+# + freeze_lot.py are next run, on the user's own explicit cadence -- never
+# automatically from this script.
+python3 src/export_screener_data.py
+
 echo "=== Nightly run complete: $(date) ==="

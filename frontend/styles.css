@@ -101,6 +101,12 @@ button {
   background: linear-gradient(180deg, #0A0D0B 0%, #06080A 100%);
   border-bottom: 1px solid var(--hairline);
 }
+/* the base rule's `display: flex` has equal specificity to and comes
+   after the UA stylesheet's `[hidden] { display: none }`, so it wins
+   and the header stays visible even with the `hidden` attribute/property
+   set unless explicitly overridden here (this is what made the ticker
+   header show up on the Home page regardless of app.js toggling it) */
+.ticker-header[hidden] { display: none; }
 
 .ticker-eyebrow {
   font-family: var(--font-mono);
@@ -211,6 +217,80 @@ main {
 }
 .home-cta:hover { color: var(--text); }
 .home-cta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- Lot picker (Overview / Statistical View) ---------- */
+
+.lot-picker-intro {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+.lot-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.lot-tile {
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.lot-tile:hover,
+.lot-tile:focus-visible { border-color: var(--accent-dim); transform: translateY(-2px); }
+.lot-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.lot-tile-number {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--accent);
+}
+.lot-tile-date {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.lot-tile-latest {
+  display: inline-block;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.lot-back-button {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 14px;
+}
+.lot-back-button:hover { color: var(--text); }
+.lot-back-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.lot-banner {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 18px;
+}
+.lot-banner strong { color: var(--text); }
 
 /* ---------- Screen A: model picker ---------- */
 
@@ -501,6 +581,7 @@ main {
   gap: 12px;
   margin-bottom: 14px;
 }
+.compare-search-row[hidden] { display: none; } /* same override-bug fix as .ticker-header above */
 
 .compare-search-block {
   position: relative;
@@ -672,11 +753,14 @@ main {
   .picker-tile,
   .picker-tile::after,
   .card,
-  .nav-item {
+  .nav-item,
+  .lot-tile {
     transition: none !important;
   }
   .picker-tile:hover,
-  .picker-tile:focus-visible {
+  .picker-tile:focus-visible,
+  .lot-tile:hover,
+  .lot-tile:focus-visible {
     transform: none !important;
   }
   .skeleton {

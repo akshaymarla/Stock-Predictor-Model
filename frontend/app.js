@@ -13,7 +13,46 @@
     return;
   }
 
-  var state = { overviewHorizon: null, statHorizon: null, compare: [null, null] };
+  var state = { overviewLot: null, overviewHorizon: null, statLot: null, statHorizon: null, compare: [null, null] };
+  var LOTS = (data.lots || []).slice(); // ascending by lot_number, oldest of the kept set first
+
+  // ==================================================================
+  // Helpers -- defined FIRST: renderLotTiles() below is called eagerly
+  // at load time (not just on click), so formatDate()/MONTHS etc. must
+  // already be assigned before that happens. A `var MONTHS = [...]`
+  // declared later in the file is hoisted as a binding but NOT assigned
+  // until its own line runs -- calling formatDate() before that line
+  // executes throws, which (since this is all one top-level script, not
+  // inside an event handler) silently halts every statement after it,
+  // including the ticker/footnote/goToSection("home") calls at the very
+  // bottom. This is exactly what caused Overview/Statistical/ticker to
+  // all appear broken/missing at once from one root cause.
+  // ==================================================================
+
+  function formatThousands(n, decimals) {
+    if (n == null) return "–";
+    return Number(n).toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+
+  var MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+  function formatDate(isoDate) {
+    if (!isoDate) return "–";
+    var d = new Date(isoDate + "T00:00:00");
+    return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+  }
+
+  function formatDateShort(isoDate) {
+    if (!isoDate) return "–";
+    var d = new Date(isoDate + "T00:00:00");
+    return d.getDate() + " " + MONTHS[d.getMonth()];
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
 
   // ==================================================================
   // Router
@@ -88,7 +127,53 @@
   }
 
   // ==================================================================
-  // Overview (existing build, unchanged behavior)
+  // Lot picker -- shared by Overview and Statistical View
+  // ==================================================================
+
+  function lotLabel(lot) {
+    return "LOT " + lot.lot_number;
+  }
+
+  function renderLotTiles(containerId, emptyId, onSelect) {
+    var container = document.getElementById(containerId);
+    var emptyEl = document.getElementById(emptyId);
+    if (!LOTS.length) {
+      container.innerHTML = "";
+      emptyEl.hidden = false;
+      return;
+    }
+    emptyEl.hidden = true;
+    var latest = LOTS[LOTS.length - 1];
+    container.innerHTML = LOTS.slice().reverse().map(function (lot) {
+      return (
+        '<button class="lot-tile" data-lot="' + lot.lot_number + '">' +
+          '<div class="lot-tile-number">' + lotLabel(lot) + "</div>" +
+          '<div class="lot-tile-date">MODEL RUN: ' + formatDate(lot.pick_date) + "</div>" +
+          (lot.lot_number === latest.lot_number ? '<span class="lot-tile-latest">LATEST</span>' : "") +
+        "</button>"
+      );
+    }).join("");
+    container.querySelectorAll(".lot-tile").forEach(function (tile) {
+      tile.addEventListener("click", function () {
+        var lotNumber = parseInt(tile.getAttribute("data-lot"), 10);
+        var lot = LOTS.filter(function (l) { return l.lot_number === lotNumber; })[0];
+        onSelect(lot);
+      });
+    });
+  }
+
+  document.querySelectorAll("[data-back-to]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var targetId = btn.getAttribute("data-back-to");
+      // walk up to the nearest ancestor .screen and hide it, show the target
+      var currentScreen = btn.closest(".screen");
+      if (currentScreen) currentScreen.hidden = true;
+      document.getElementById(targetId).hidden = false;
+    });
+  });
+
+  // ==================================================================
+  // Overview
   // ==================================================================
 
   function renderFootnote() {
@@ -103,6 +188,14 @@
     }
   }
 
+  renderLotTiles("overview-lot-tiles", "overview-lot-empty", function (lot) {
+    state.overviewLot = lot;
+    document.getElementById("overview-lot-picker").hidden = true;
+    document.getElementById("screen-picker").hidden = false;
+    document.getElementById("overview-lot-banner").innerHTML =
+      "<strong>" + lotLabel(lot) + "</strong> &middot; MODEL RUN: " + formatDate(lot.pick_date);
+  });
+
   document.querySelectorAll("#overview-picker-tiles .picker-tile").forEach(function (tile) {
     tile.addEventListener("click", function () {
       showDeck(tile.getAttribute("data-horizon"));
@@ -114,8 +207,6 @@
     document.getElementById("screen-picker").hidden = false;
   });
 
-  var TOP_N = 20; // matches weekly_shortlist.py's / export_screener_data.py's own top-N convention
-
   function showDeck(horizon) {
     state.overviewHorizon = horizon;
     document.getElementById("screen-picker").hidden = true;
@@ -124,26 +215,17 @@
   }
 
   function renderDeck() {
+    var lot = state.overviewLot;
     var horizon = state.overviewHorizon;
-    var probKey = "prob_" + horizon;
-    var candidates = (data.candidates || []).slice();
+    var candidates = ((lot && lot.candidates && lot.candidates[horizon]) || []).slice();
+    // already frozen in rank order (calibrated_prob_at_pick DESC) by
+    // build_lot_candidates() at freeze time -- no re-sorting needed, this
+    // IS the actual selection that was made, never recomputed.
 
-    candidates.sort(function (a, b) {
-      var diff = (b[probKey] || 0) - (a[probKey] || 0);
-      if (diff !== 0) return diff;
-      return a.ticker.localeCompare(b.ticker); // tiebreak: alphabetical
-    });
-    // data.candidates is already the union of both horizons' top-N
-    // (export_screener_data.py) -- re-slicing to this horizon's own
-    // top-N here is what actually keeps a stock that only made the
-    // OTHER horizon's cut out of this tab. Sorting by this horizon's
-    // prob and taking the top N reproduces the true full-universe top-N
-    // exactly, since every stock that's really in this horizon's top N
-    // is already present in the union by construction.
-    candidates = candidates.slice(0, TOP_N);
-
-    document.getElementById("deck-title").textContent = horizon.toUpperCase() + " outperformance candidates";
-    document.getElementById("deck-count").textContent = "N=" + candidates.length + " CANDIDATES";
+    document.getElementById("deck-title").textContent =
+      lotLabel(lot) + " · " + horizon.toUpperCase() + " outperformance candidates";
+    document.getElementById("deck-count").textContent =
+      "N=" + candidates.length + " CANDIDATES · MODEL RUN: " + formatDate(lot.pick_date);
 
     var grid = document.getElementById("deck-grid");
     var emptyEl = document.getElementById("deck-empty");
@@ -155,14 +237,13 @@
     }
     emptyEl.hidden = true;
 
-    grid.innerHTML = candidates.map(function (c, i) {
-      return renderCard(c, horizon, probKey, i + 1);
+    grid.innerHTML = candidates.map(function (c) {
+      return renderCard(c, horizon);
     }).join("");
   }
 
-  function renderCard(c, horizon, probKey, rank) {
-    var prob = c[probKey] || 0;
-    var probPct = Math.round(prob * 100);
+  function renderCard(c, horizon) {
+    var probPct = Math.round((c.prob || 0) * 100);
     var changeIsPos = (c.day_change_pct || 0) >= 0;
     var changeGlyph = changeIsPos ? "▲" : "▼";
     var changeClass = changeIsPos ? "pos" : "neg";
@@ -184,7 +265,7 @@
         '<div class="card-footer">' +
           "<span>" + horizon.toUpperCase() + "</span>" +
           '<span class="' + changeClass + '">' + changeGlyph + " " + Math.abs(c.day_change_pct || 0).toFixed(2) + "%</span>" +
-          "<span>#" + rank + "</span>" +
+          "<span>#" + c.rank + "</span>" +
         "</div>" +
       "</div>"
     );
@@ -193,6 +274,14 @@
   // ==================================================================
   // Statistical View
   // ==================================================================
+
+  renderLotTiles("stat-lot-tiles", "stat-lot-empty", function (lot) {
+    state.statLot = lot;
+    document.getElementById("stat-lot-picker").hidden = true;
+    document.getElementById("stat-picker").hidden = false;
+    document.getElementById("stat-lot-banner").innerHTML =
+      "<strong>" + lotLabel(lot) + "</strong> &middot; MODEL RUN: " + formatDate(lot.pick_date);
+  });
 
   document.querySelectorAll("#stat-picker-tiles .picker-tile").forEach(function (tile) {
     tile.addEventListener("click", function () {
@@ -213,12 +302,14 @@
   }
 
   function renderStatTable() {
+    var lot = state.statLot;
     var horizon = state.statHorizon;
-    var tracking = (data.tracking || {})[horizon];
+    var tracking = ((lot && lot.tracking) || {})[horizon];
     var tableEl = document.getElementById("stat-table");
     var emptyEl = document.getElementById("stat-empty");
 
-    document.getElementById("stat-title").textContent = horizon.toUpperCase() + " tracking -- realized vs. Nifty";
+    document.getElementById("stat-title").textContent =
+      lotLabel(lot) + " · " + horizon.toUpperCase() + " tracking -- realized vs. Nifty";
 
     if (!tracking) {
       tableEl.innerHTML = "";
@@ -227,25 +318,19 @@
       return;
     }
     emptyEl.hidden = true;
-    document.getElementById("stat-pick-date").textContent = "PICKED " + formatDate(tracking.pick_date);
+    document.getElementById("stat-pick-date").textContent =
+      "MODEL RUN: " + formatDate(tracking.pick_date);
 
-    // default row order: same as Overview deck for this horizon (ranked
-    // by probability, descending) -- cross-referencing data.candidates
-    // since tracking.stocks itself only carries realized closes, not
-    // probabilities. A symbol not found there (sets can diverge -- see
-    // export_screener_data.py's tracking_section docstring) sorts after,
-    // alphabetically, rather than being dropped.
-    var probKey = "prob_" + horizon;
-    var probByTicker = {};
-    (data.candidates || []).forEach(function (c) { probByTicker[c.ticker] = c[probKey]; });
-
-    var tickers = Object.keys(tracking.stocks).sort(function (a, b) {
-      var pa = probByTicker[a], pb = probByTicker[b];
-      if (pa != null && pb != null && pa !== pb) return pb - pa;
-      if (pa != null && pb == null) return -1;
-      if (pa == null && pb != null) return 1;
-      return a.localeCompare(b);
-    });
+    // row order: this lot's own candidate rank (frozen at freeze time,
+    // calibrated_prob_at_pick DESC) -- lot.candidates and tracking.stocks
+    // share the exact same symbol set by construction (freeze_lot.py
+    // builds both from the same tracked_picks rows), so no cross-
+    // referencing/fallback sort is needed the way the old single-live-
+    // ranking design required.
+    var tickers = ((lot.candidates || {})[horizon] || [])
+      .slice()
+      .sort(function (a, b) { return a.rank - b.rank; })
+      .map(function (c) { return c.ticker; });
 
     var head = "<thead><tr><th class=\"row-header\">Symbol</th>" +
       tracking.trading_days.map(function (d, i) {
@@ -483,35 +568,6 @@
         '<div class="compare-periods">' + periodsHtml + "</div>" +
       "</div>"
     );
-  }
-
-  // ==================================================================
-  // Helpers
-  // ==================================================================
-
-  function formatThousands(n, decimals) {
-    if (n == null) return "–";
-    return Number(n).toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  }
-
-  var MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-
-  function formatDate(isoDate) {
-    if (!isoDate) return "–";
-    var d = new Date(isoDate + "T00:00:00");
-    return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
-  }
-
-  function formatDateShort(isoDate) {
-    if (!isoDate) return "–";
-    var d = new Date(isoDate + "T00:00:00");
-    return d.getDate() + " " + MONTHS[d.getMonth()];
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
   }
 
   renderTicker();
