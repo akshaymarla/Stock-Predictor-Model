@@ -75,6 +75,35 @@ BHAVCOPY_COLUMN_MAP = {
     "DELIV_QTY": "delivery_qty",
     "DELIV_PER": "delivery_pct",
 }
+DATE_FORMAT = "%d-%b-%Y"
+
+# NSE switched the CM bhavcopy to a new "UDiFF"-style unified cross-segment
+# format starting 2026-07-21 (confirmed live -- 2026-07-20's file uses the
+# columns above, 2026-07-21 onward uses these entirely different ones, same
+# settlement data). The old field_map/date-format above stop matching
+# anything in the new file's header, so fetch_bhavcopy_rows() below detects
+# which format a given response is and picks the right map -- this is NOT
+# a one-off historical date to route around like the Diwali-Muhurat/zip
+# cases in this module's docstring, it's the new steady-state format for
+# every date going forward.
+#
+# NO DELIVERY-QUANTITY DATA in the new format at all (checked the full
+# 34-column header -- TradDt..Rsvd4, nothing delivery-related). NSE now
+# appears to publish delivery data as a separate file under the new regime.
+# delivery_qty/delivery_pct are left NULL for new-format rows rather than
+# guessed -- a real, currently-unclosed gap, not a bug in this parser.
+BHAVCOPY_COLUMN_MAP_UDIFF = {
+    "TckrSymb": "symbol",
+    "SctySrs": "series",
+    "TradDt": "date",
+    "PrvsClsgPric": "prev_close",
+    "OpnPric": "open",
+    "HghPric": "high",
+    "LwPric": "low",
+    "ClsPric": "close",
+    "TtlTradgVol": "volume",
+}
+DATE_FORMAT_UDIFF = "%Y-%m-%d"
 
 
 def find_missing_days(conn) -> list:
@@ -136,11 +165,18 @@ def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
     inserted under the wrong assumption."""
     text = arc.bhavcopy_raw(dt)
     reader = csv.DictReader(io.StringIO(text))
+    raw_headers = {h.strip() for h in (reader.fieldnames or [])}
     # bhavcopy headers/values carry stray leading/trailing whitespace
     # (confirmed live: 'SYMBOL, SERIES, DATE1, ...' with a space after
     # every comma) -- strip both keys and values, don't assume clean CSV.
-    field_map = {raw.strip(): BHAVCOPY_COLUMN_MAP[raw.strip()]
-                 for raw in (reader.fieldnames or []) if raw.strip() in BHAVCOPY_COLUMN_MAP}
+    # Detect old vs. new (UDiFF) format by which columns are actually
+    # present, rather than assuming by date -- more robust than a
+    # hardcoded cutover date if NSE's transition wasn't perfectly clean.
+    if "TradDt" in raw_headers:
+        column_map, date_format = BHAVCOPY_COLUMN_MAP_UDIFF, DATE_FORMAT_UDIFF
+    else:
+        column_map, date_format = BHAVCOPY_COLUMN_MAP, DATE_FORMAT
+    field_map = {raw: column_map[raw] for raw in raw_headers if raw in column_map}
     expected_date_str = dt.strftime("%Y-%m-%d")
 
     by_symbol = {}
@@ -154,7 +190,7 @@ def fetch_bhavcopy_rows(arc: NSEArchives, dt, known_symbols: set) -> list:
         if symbol not in known_symbols:
             continue
         try:
-            date_str = datetime.strptime(normalized["date"], "%d-%b-%Y").strftime("%Y-%m-%d")
+            date_str = datetime.strptime(normalized["date"], date_format).strftime("%Y-%m-%d")
         except (ValueError, KeyError):
             continue
         if date_str != expected_date_str:

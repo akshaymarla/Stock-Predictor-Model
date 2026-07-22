@@ -1,0 +1,144 @@
+{
+  "run_type": "weekly_shortlist",
+  "run_date": "2026-07-22",
+  "git_commit": "0bf7992",
+  "notes": "",
+  "scoring_date": "2026-07-22",
+  "universe": {
+    "index_membership_snapshot_date": "2026-07-22",
+    "total_in_snapshot": 500,
+    "excluded_surveillance": 13,
+    "excluded_no_recent_price_data": 1,
+    "excluded_illiquid_bottom_decile": 49,
+    "eligible": 437
+  },
+  "regime": {
+    "as_of_date": "2026-07-22",
+    "india_vix_close": 13.29,
+    "vix_percentile_1y": 0.626984126984127,
+    "nifty50_dist_50dma_pct": 0.6827,
+    "nifty50_return_10d": 0.4782,
+    "flags": [],
+    "note": "informational only -- does not filter or block the shortlist"
+  },
+  "horizons": {
+    "14d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-03-11",
+      "calib_start": "2026-04-06",
+      "calib_end": "2026-07-02",
+      "calib_auc_raw": 0.5300325123033602,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "360ONE",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 2,
+          "symbol": "MINDACORP",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 3,
+          "symbol": "NAUKRI",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 4,
+          "symbol": "NATIONALUM",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 5,
+          "symbol": "NATCOPHARM",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 6,
+          "symbol": "NAM-INDIA",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 7,
+          "symbol": "MUTHOOTFIN",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 8,
+          "symbol": "MSUMI",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 9,
+          "symbol": "MRF",
+          "calibrated_prob": 0.5785048556344917
+        },
+        {
+          "rank": 10,
+          "symbol": "MPHASIS",
+          "calibrated_prob": 0.5785048556344917
+        }
+      ]
+    },
+    "30d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-01-23",
+      "calib_start": "2026-03-10",
+      "calib_end": "2026-06-09",
+      "calib_auc_raw": 0.6027359414601057,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "SWIGGY",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 2,
+          "symbol": "BHARTIARTL",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 3,
+          "symbol": "OFSS",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 4,
+          "symbol": "ABFRL",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 5,
+          "symbol": "INDIACEM",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 6,
+          "symbol": "ABSLAMC",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 7,
+          "symbol": "PERSISTENT",
+          "calibrated_prob": 0.7452173913043478
+        },
+        {
+          "rank": 8,
+          "symbol": "POLYMED",
+          "calibrated_prob": 0.7364400305576776
+        },
+        {
+          "rank": 9,
+          "symbol": "GODIGIT",
+          "calibrated_prob": 0.7364400305576776
+        },
+        {
+          "rank": 10,
+          "symbol": "UTIAMC",
+          "calibrated_prob": 0.7364400305576776
+        }
+      ]
+    }
+  }
+}

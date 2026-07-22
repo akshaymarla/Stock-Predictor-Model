@@ -280,6 +280,63 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-22 (real bug: `stock_df` dates were shifted -1 day; NSE's bhavcopy format changed; Lot 2 redone)**:
+  User reported stock prices on the site looked like next-day values
+  labeled under the wrong date. Investigated by cross-referencing against
+  NSE's bhavcopy (the more authoritative source) and found two separate,
+  compounding issues:
+  1. **`fetch_daily_prices.py`'s `stock_df`/`NSE`-sourced fetches were
+     uniformly dating every row one calendar day EARLIER than the true
+     trade date.** Proven with hard evidence, not inference: pulled true
+     bhavcopy closes for RELIANCE across 07-16→07-22 and matched them
+     exactly against what was stored under 07-15→07-21 (identical
+     values, one day offset, for every single date in the chain). This
+     is a different, more systematic bug than the earlier-suspected
+     "one Sunday-mislabeled row" — it affected every row from every
+     `stock_df` fetch this session (both the plain nightly single-day
+     fetch and the explicit `--from-date`/`--to-date` backfill used to
+     patch that day's gap). The earlier same-night fix (renaming one
+     row from a Sunday to what looked like the right weekday via chain
+     continuity) turned out to have landed on the wrong date too — a
+     symptom of not yet knowing the shift was uniform across the whole
+     batch, not an isolated row.
+  2. **NSE switched its CM bhavcopy file to a new unified/UDiFF-style
+     schema starting 2026-07-21** (confirmed live: 07-20's file uses
+     `SYMBOL/SERIES/DATE1/CLOSE_PRICE/...`, 07-21 onward uses
+     `TckrSymb/SctySrs/TradDt/ClsPric/...` — completely different
+     columns, same underlying settlement data). This silently broke
+     `fetch_bhavcopy_rows()` (shared by `backfill_price_gaps.py` and
+     `backfill_prices_via_bhavcopy.py`) for every date from 07-21
+     onward — not a "no data yet" case, a parser that no longer
+     recognized any column in the new file at all, so every row was
+     silently dropped. Fixed: `fetch_bhavcopy_rows()` now detects which
+     format a response is (presence of `TradDt` vs. `DATE1`) and uses
+     the matching column map. **The new format has no delivery-quantity
+     data at all** (checked the full 34-column header) — NSE now
+     appears to publish that separately; `delivery_qty`/`delivery_pct`
+     are left `NULL` for new-format rows rather than guessed, a real
+     open gap, not a bug in this parser.
+  - **Remediation**: deleted the 2,496 mislabeled `NSE`-sourced rows
+    (dates 07-15 through 07-21) and re-fetched all 6 real trading days
+    (07-15 through 07-22) via the now-fixed bhavcopy path — the more
+    reliable source to begin with, per this project's own established
+    preference. Recomputed `model_target_labels`/`model_feature_matrix`
+    on the corrected prices. `scoring_date` now correctly reaches
+    **2026-07-22 (today)**, not stuck behind a phantom gap.
+  - **Lot 2 was contaminated** (frozen using the shifted data — its
+    entry prices were confirmed off, e.g. BAJAJHLDNG's frozen entry
+    price was really the *next* day's close, and the model's own
+    ranking inputs were built on the same shifted feature data). Per
+    direct confirmation: deleted its `tracked_picks` rows and frozen
+    file, and remade it for real on the corrected data — new Lot 2 is
+    pick_date **2026-07-22** (today, now that the gap is genuinely
+    closed), with a completely different top-20 for each horizon (as
+    expected, given how much actually changed). Lot 1 was unaffected
+    throughout (predates any of this session's fetches).
+  - Ticker header's `is_stale` now correctly reads `false` for the first
+    time this session — the pipeline is finally caught up to the actual
+    present.
+
 - **2026-07-22 (Lot tracking wasn't refreshing; `run_nightly.sh` made permanent/cron-robust)**:
   - **Real bug**: `freeze_lot.py` computed each lot's day-by-day
     `tracking` table once, at freeze time, and baked it into the frozen
