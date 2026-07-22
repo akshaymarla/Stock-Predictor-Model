@@ -65,6 +65,7 @@ from data_loader import ALL_FEATURE_COLUMNS, load_feature_frame  # noqa: E402
 from splitting import add_calibration_split  # noqa: E402
 from train_lightgbm import LGB_PARAMS  # noqa: E402
 from report_archive import write_archive_summary  # noqa: E402
+from log_shortlist_picks import log_picks  # noqa: E402
 
 HORIZONS = [
     {"label": "14d", "flag_col": "outperform_14d_flag", "embargo_days": 14},
@@ -434,6 +435,8 @@ def main():
         md_path = out_dir / f"shortlist_{horizon['label']}_{run_date}.md"
         write_human_readable(md_path, horizon["label"], scoring_date, exclusions, regime, shortlist, calib_auc)
         print(f"  Human-readable output: {md_path}")
+
+        log_picks(conn, horizon["label"], scoring_date, shortlist)
 
         archive_payload["horizons"][horizon["label"]] = {
             "model_train_start": split["model_train_start"], "model_train_end": split["model_train_end"],

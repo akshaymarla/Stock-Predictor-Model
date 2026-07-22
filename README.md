@@ -24,6 +24,10 @@ progress — check the bottom of this file for the latest status.
 | `model_feature_matrix` | `src/assemble_feature_matrix.py` | Working (rebuilt from scratch 2026-07-20 on clean `daily_prices` + the 0c tie-break/staleness fixes -- 556,778 rows, matches daily_prices exactly; fundamentals join verified zero look-ahead leakage). FEATURES ONLY -- sector_* columns are currently 0/NULL for all historical rows, a known accepted limitation (see changelog), not a bug. Includes `sh_inst_*` institutional-attention block (level + QoQ/YoY trend, ~95% coverage). `recent_order_dispute_flag_30d` retired 2026-07-19, replaced by `recent_negative_catalyst_flag_30d`/`recent_positive_catalyst_flag_30d` (LLM-sourced) -- both currently all-zero pending the real classification run, see changelog. `fin_net_profit` non-null count dropped 289,677 → 254,432 after the staleness-cutoff fix -- expected and correct (previously-wrong stale values now correctly NULL rather than silently trusted) |
 | `shareholding_institutional_breakdown` | `src/fetch_institutional_breakdown.py` | Working, full universe fetched and verified (confirmed 2026-07-19: 14,252/14,252 rows have `total_institutional_pct` populated, 0 rows outside the valid [0,1] range, 0 unclassified category names). Parses the XBRL filing `shareholding_pattern.attachment_url` already points to -- not a new data source. Went through 3 real bugs (scale normalization, category-mapping coverage across XBRL eras, BSE's taxonomy-specific total anchor) -- see changelog for all three |
 | `models/shortlists/*` (not a DB table) | `src/weekly_shortlist.py` | Working, ran end-to-end 2026-07-20 -- production model (trained on all history minus a reserved calibration tail) scores today's eligible universe, ranks top-N, attaches real per-stock SHAP explanations. Machine + human-readable output, gitignored (per-run, not meant to survive rebuilds; compact archive summary in `models/reports/archive/` is what persists). See changelog for two bugs found and fixed during first real run |
+| `tracked_picks` | `src/log_shortlist_picks.py` (write, wired into `weekly_shortlist.py`), `src/resolve_tracked_picks.py` (resolve, wired into `run_nightly.sh`) | **New 2026-07-21** (`tracking_dashboard_spec.md`) -- turns the weekly shortlist into a genuine out-of-sample track record. Confirmed working end-to-end: a real `weekly_shortlist.py` run (both horizons, top-20) logged 40 real rows (pick_date 2026-07-15, entry prices spot-checked exactly against `daily_prices`); resolution logic spot-checked separately against two synthetic picks (RELIANCE @ 2026-06-01/14d resolved with `actual_alpha`/`actual_stock_return`/`actual_nifty_return` matching `model_target_labels`' `alpha_14d`/etc. exactly, confirming it reuses `compute_target_labels.py`'s math rather than reimplementing it; CADILAHC @ 2022-02-22/14d correctly produced `delisted_during_hold` since its 14-trading-day window runs past its real 2022-03-04 delisting) -- both test rows deleted afterward, not left in the real table. All 40 real rows are currently `open` (too soon to resolve). `calibrated_prob_at_pick`/`top_factors_json` are frozen at insert time, never rewritten. `target_close_date` stored at insert time is a weekend-adjusted calendar-day *estimate* (the real trading calendar doesn't extend into the future yet) -- `resolve_tracked_picks.py` overwrites it with the exact trading-day date at resolution |
+| `models/reports/tracking_dashboard.html` (not a DB table) | `src/generate_tracking_dashboard.py` | **New 2026-07-21** -- single self-contained HTML file (Chart.js via CDN), regenerated on demand. Confirmed rendering correctly against both an empty table and the real 40-row state (open-position day-by-day trend charts, hit-rate-by-calibration-bucket section reusing `evaluate.calibration_curve()`, sortable resolved-picks table, delisted section) -- hit-rate/resolved/delisted sections have no real data to show yet since nothing has resolved. Gitignored under the existing `models/reports/*` rule; the DB table is the persistent source of truth |
+| `frontend/` (not a DB table) | `src/export_screener_data.py` (data), `frontend/index.html`+`styles.css`+`app.js` (UI) | **New 2026-07-22** (`frontend-screener-spec.md`) -- plain HTML/CSS/JS screener UI (ticker header + 14D/30D model picker + ranked card deck), per the spec's own stack-agnostic reference implementation since this repo has no existing frontend stack. **Candidate scope corrected same day**: first shipped as the full ~440-name eligible universe (the spec's own Section 9 Q4 was initially resolved that way), but confirmed by real use to be unscannable -- reverted to each horizon's actual top-20 selection (matching `weekly_shortlist.py`'s own established top-N convention), computed as the union of both horizons' top-20 (35 unique names in the real run, 5 overlap) so a stock can still legitimately appear on only one horizon's tab. Both horizon models still score the full eligible universe internally (`export_screener_data.py` reuses `weekly_shortlist.py`'s `train_production_model()`/`load_universe()` directly, skips its SHAP pass since the card UI doesn't show per-stock factors) -- exporting/ranking is what's now scoped down, not the underlying scoring, so rankings stay exact. The frontend re-slices to this horizon's own top-20 client-side (`app.js`) rather than showing the full union on every tab -- provably correct since a stock genuinely in a horizon's true top-20 is always in the union by construction, so sorting the union by that horizon's probability and taking the top 20 reproduces the true top-20 exactly. Real re-run's top-5-by-horizon matched the earlier standalone `weekly_shortlist.py` run's output exactly (ICICIAMC/SAILIFE/SAMMAANCAP/INDUSTOWER at 68.8% for 14d; HINDPETRO/RKFORGE at 77.8% for 30d) -- `data.js` shrank from 130KB/440 candidates to 11KB/35. `model_meta.status`/notes are derived for real from `tracked_picks`' live hit rate (reuses `generate_tracking_dashboard.py`'s calculation) -- currently `"provisional"` since 0 picks have resolved yet, not hardcoded. `is_stale` correctly showed `true` in the real output since the pipeline's confirmed scoring date (2026-07-15) lags real "today" (2026-07-22, nightly hasn't run since). Data file (`frontend/data.js`) is a plain `<script src>` include, not a `fetch()`'d JSON file -- deliberately, so the page still opens directly with zero server (file:// pages can't `fetch()` JSON in most browsers) -- and is gitignored/regenerated on demand, same status as `models/shortlists/*`. HTML/CSS/JS structurally validated (balanced tags/braces/parens) and visually confirmed loading correctly in Safari (page title + DOM confirmed via URL query) -- full interactive click-through not automated, user asked not to proceed with the JS-injection approach tried for that; visual/interaction spot-check by eye is still recommended before treating this as fully confirmed |
+| `frontend/` v2 restructure | `src/export_screener_data.py` (+tracking/universe_snapshot), `frontend/*` (sidebar shell) | **New 2026-07-22** (`frontend-spec-v2-sidebar-nav.md`) -- renamed to "Nifty Alpha Predictor," restructured the single-screen build behind a left sidebar into 4 sections (Home, Overview, Statistical View, Other Stocks — To Compare), reusing the existing Overview render logic unchanged. **Key interpretation call**: the Statistical View's day-by-day tracking table is built from the REAL `tracked_picks` table (the actual picks `weekly_shortlist.py` already logged, currently pick_date 2026-07-15/20 names per horizon), not a fresh top-N recomputed by `export_screener_data.py` each run — the spec's own text ("matches the out-of-sample tracking just started note already in `data.model_meta.notes`") points directly at `tracked_picks`, and a fresh-every-run set would just reset to all-nulls on every export instead of accumulating real history. `trading_days` columns use real trading-calendar dates for whatever's actually elapsed and the same weekend-adjusted estimate convention as `log_shortlist_picks.py` for future columns, so the table shape never changes as real days fill in. Confirmed in the real export: 14 columns, only D+0 has real data (`close`/`day_change_pct` populated), D+1 onward correctly `null` — expected, since `scoring_date` is by definition the newest confirmed day. The Compare section's full-Nifty-500 lookup (`universe_snapshot`, `frontend/universe.js`) reuses `backtest.py`'s `price_at_or_before()`/`load_price_lookup()` directly for every lookback (trading-day-based for d3/d7/d14, calendar-month/year with prior-trading-day fallback for m1/m6/y1, per the spec's own stated convention) — real output's `change_pct_vs_last` formula verified against the spec's own worked RELIANCE example (both give 1.24%/5.81% for the same inputs). `universe.js` (500 stocks) is lazy-loaded only when Compare is first opened, not bundled into the always-loaded `data.js`, per the spec's own build-time-decision note. All open questions in the spec's Section 8 resolved using the spec's own stated defaults (calendar lookback w/ fallback for 1M/6M/1Y, 2-stock-max compare, all top-N rows shown in Statistical View, same export script/cadence for the universe snapshot, "Go to Overview" CTA included) — none required asking the user. Structurally validated (balanced HTML/CSS/JS) and opened successfully in the browser; full interactive click-through across all 4 sections not automated this round (see the note on the v1 row about declined browser-automation) |
 
 ## Setup
 
@@ -274,6 +278,177 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
   trying if `fetch_surveillance.py`'s plain `requests` session gets blocked.
 
 ## Changelog
+
+- **2026-07-22 (`frontend-spec-v2-sidebar-nav.md` — sidebar restructure + Statistical View + Compare)**:
+  Renamed "Nifty 500 Neglect Screener" → **"Nifty Alpha Predictor"** and
+  restructured the single-screen build into a 4-section app (Home,
+  Overview, Statistical View, Other Stocks — To Compare) behind a
+  persistent left sidebar, per spec. Overview's picker/deck behavior is
+  unchanged — just moved under its own nav item.
+  - **Statistical View**: a day-by-day tracking table, deliberately built
+    from the REAL `tracked_picks` table rather than a fresh top-N
+    recomputed on every export run. The spec's own text ties this view to
+    `data.model_meta.notes`' "out-of-sample tracking just started" line,
+    which only makes sense if it's the same real tracked picks — a
+    fresh-every-run set would just show an all-null table every time
+    instead of accumulating real history as days actually elapse.
+    `trading_days` columns mix real trading-calendar dates (for whatever
+    has actually happened) with the same weekend-adjusted estimate
+    `log_shortlist_picks.py` already uses for future dates, so the table
+    never changes shape as real closes fill in. Verified in the real
+    export: 14/30 columns generated correctly, only D+0 populated (real
+    data), rest correctly `null` — expected, since the pipeline's
+    confirmed scoring date is always the newest day by definition.
+  - **Other Stocks — To Compare**: full Nifty 500 lookup + up to 2-stock
+    side-by-side comparison across 7 lookback periods. Reuses
+    `backtest.py`'s `price_at_or_before()`/`load_price_lookup()` directly
+    for every single lookback rather than a new date-math convention —
+    trading-day-based for 3D/7D/14D, calendar month/year with
+    prior-trading-day fallback for 1M/6M/1Y, matching the spec's own
+    stated preference. Verified the `change_pct_vs_last` formula against
+    the spec's own worked RELIANCE example before trusting it in the real
+    export (both hand-calc and real output agree). Exported to a separate
+    `frontend/universe.js` (500 stocks), lazy-loaded only when the
+    Compare section is first opened rather than bundled into `data.js`
+    which loads on every page view, per the spec's own build-time-decision
+    note directed at this exact choice.
+  - **All 5 of Section 8's open questions resolved using the spec's own
+    stated defaults** (calendar lookback w/ prior-trading-day fallback for
+    1M/6M/1Y; hardcoded 2-stock compare cap, not generic N; Statistical
+    View shows all top-N rows, no checkbox narrowing; universe snapshot
+    shares `export_screener_data.py`'s cadence; Home keeps the "Go to
+    Overview" CTA) — none of these required stopping to ask, since the
+    spec itself already stated a preference for each.
+  - Verified: HTML/CSS/JS structurally balanced, export script re-run
+    produced both `data.js` (with the new `tracking` key) and
+    `frontend/universe.js` correctly, page opened successfully in the
+    browser. Full interactive click-through across all 4 sections was
+    **not** automated this round (same browser-automation constraint
+    noted on the v1 frontend row above) — worth a manual pass before
+    fully trusting the Compare search/keyboard-nav and sidebar mobile
+    collapse.
+
+- **2026-07-22 (`frontend-screener-spec.md` — build the screener frontend)**:
+  First frontend in the repo (previously data/model layer only) — a
+  plain HTML/CSS/JS UI (per the spec's own stack-agnostic reference
+  implementation, since no existing frontend stack was found to adapt
+  to) presenting the model's ranked output as a ticker header + 14D/30D
+  picker + card deck, replacing whatever earlier frontend draft existed
+  in a separate claude.ai conversation this tool doesn't share context
+  with.
+  - **Resolved the spec's own open Section 9 Q4** (full universe vs.
+    top-N cutoff) with the user: full eligible universe, ranked — not a
+    pre-filtered subset. This meant `src/export_screener_data.py`
+    couldn't just reuse `weekly_shortlist.py`'s existing top-20 output;
+    it scores both horizon models across the entire ~440-name eligible
+    universe (reusing `train_production_model()`/`load_universe()`
+    directly, skipping the SHAP explanation pass since the card UI
+    never shows per-stock factors — real, measured time saved: the full
+    export ran in ~55s without it).
+  - **Reverted same day**: the full-440 deck turned out unscannable in
+    real use, confirming the spec's own doubt about that choice. Kept
+    the full-universe *scoring* (needed for correct rankings) but scoped
+    the *export/display* to each horizon's actual top-20 — the union of
+    both horizons' top-20 sets (35 unique names, 5 overlap in the real
+    re-run), with `app.js` re-slicing to each horizon's own top-20
+    client-side when its tab is selected. See the status table entry
+    for why that client-side re-slice is provably equivalent to the true
+    full-universe top-20, not an approximation.
+  - `frontend/index.html` + `styles.css` + `app.js` — ticker header
+    (sticky, skeleton-loading state, honest `is_stale`/"AS OF" framing
+    rather than implying a same-day live value when the pipeline's
+    confirmed data lags), Screen A model picker (data-driven footnote,
+    never hardcoded), Screen B card deck (client-side sort per horizon,
+    tiebreak alphabetical, empty-state and data-missing-state copy per
+    spec rather than a silent blank render). Design tokens, breakpoints,
+    keyboard focus states, and `prefers-reduced-motion` handling taken
+    directly from spec Sections 7–8.
+  - `model_meta.status`/`notes` are derived for real from `tracked_picks`'
+    live hit rate (reuses `generate_tracking_dashboard.py`'s hit-rate
+    calculation from yesterday's tracking-dashboard work) — currently
+    `"provisional"` since 0 real picks have resolved yet, not a
+    hardcoded placeholder string.
+  - `frontend/data.js` is a plain `<script src>` include, not a
+    `fetch()`'d JSON file — deliberate, so the page keeps this project's
+    "opens directly, zero server" convention (file:// pages can't
+    `fetch()` JSON in most browsers, but a plain script include works
+    fine). Gitignored/regenerated on demand, same status as
+    `models/shortlists/*`.
+  - Verified end-to-end against real data: full export run produced 440
+    candidates; entry price / 52-week range / sector spot-checked
+    against `daily_prices`/`index_membership` directly; `is_stale`
+    correctly read `true` in the real output (pipeline's confirmed
+    scoring date, 2026-07-15, lags real today, 2026-07-22 — nightly
+    hasn't run since). HTML/CSS/JS structurally validated (balanced
+    tags/braces/parens) and the page confirmed actually loading in
+    Safari (title + URL queried via AppleScript). Full interactive
+    click-through (picker → deck → back, card content) was **not**
+    automated this round — the user stopped a JS-injection-based
+    automated check partway through, so this is verified by structural/
+    code review and a load check, not a full driven click-test. Worth a
+    manual eyeball before trusting the interactive states fully.
+
+- **2026-07-21 (`tracking_dashboard_spec.md` — build the pick-tracking dashboard)**:
+  Turns `weekly_shortlist.py`'s one-shot output into a genuine live track
+  record — the out-of-sample validation the backtest can't give, since a
+  backtest only says how the model *would have* done on historical folds,
+  not how it's *actually* doing on picks made after the fact. Pure
+  observability, not a trading system.
+  - Added `tracked_picks` (schema.sql) — one row per (symbol, horizon,
+    pick_date), written once and never rewritten. `calibrated_prob_at_pick`/
+    `top_factors_json` are frozen at insert time on purpose — a future
+    retrain must never silently overwrite what the model actually said at
+    pick time, or the whole point of tracking is defeated.
+  - `src/log_shortlist_picks.py`, wired directly into `weekly_shortlist.py`
+    (not a separate manual step) — logs all 20 shortlisted names per
+    horizon every run, using `backtest.py`'s existing `price_at_or_before()`
+    for entry price rather than a second "what does buying on this date
+    mean" convention. `target_close_date` stored here is a weekend-adjusted
+    calendar-day *estimate* only, since the real trading calendar
+    (`macro_regime_indicators`) doesn't extend into the future — it's just
+    a "check back around here" trigger for the resolver, always a safe
+    upper bound (ignores the handful of yearly NSE holidays, so it never
+    undershoots).
+  - `src/resolve_tracked_picks.py`, added to `run_nightly.sh` — resolves
+    `open` picks once the real trading calendar (not the estimate) has
+    actually advanced far enough, reusing `compute_target_labels.py`'s
+    exact forward-window/`_pct_return` math (never a second
+    implementation), and overwrites `target_close_date` with the true
+    trading-day date at resolution. A symbol missing a close on the exact
+    target day is marked `delisted_during_hold`, never given a fabricated
+    return — same mid-hold-dropout stance already used in `backtest.py`.
+  - `src/generate_tracking_dashboard.py` — single self-contained HTML file
+    (Chart.js via CDN, opens with no server), written to
+    `models/reports/tracking_dashboard.html` (already covered by the
+    existing `models/reports/*` gitignore rule — the DB table is the
+    persistent record, not this file). Sections: live hit rate (overall +
+    by horizon + by calibrated-probability bucket, reusing
+    `evaluate.calibration_curve()` rather than a new bucketing
+    implementation), open positions (day-by-day stock-vs-Nifty cumulative
+    return chart per pick, computed fresh from `daily_prices`/
+    `macro_regime_indicators` at generation time — no second stored copy
+    of already-current data), sortable resolved-picks log, and an
+    excluded/delisted table so dropouts are shown, not silently dropped.
+  - **Verified end-to-end against the real pipeline, not just unit-level**:
+    ran `weekly_shortlist.py` for real (both horizons, top-20,
+    scoring_date 2026-07-15) — 40 rows logged, entry prices spot-checked
+    exactly against `daily_prices`. Resolution logic separately verified
+    with two synthetic picks (deleted afterward, never left in the real
+    table): RELIANCE @ 2026-06-01/14d resolved with
+    `actual_alpha`/`actual_stock_return`/`actual_nifty_return` matching
+    `model_target_labels`'s `alpha_14d`/`stock_return_14d`/
+    `nifty_return_14d` for that exact symbol/date exactly, confirming the
+    resolver genuinely reuses `compute_target_labels.py`'s math; CADILAHC
+    @ 2022-02-22/14d correctly produced `delisted_during_hold` (its
+    14-trading-day window runs past its real 2022-03-04 delisting date).
+    Dashboard regenerated against the real 40-row state and rendered
+    correctly (open-position charts have one data point so far — as
+    expected, since `macro_regime_indicators` hasn't advanced past the
+    2026-07-15 scoring date yet; will extend automatically as future
+    nightly runs add days).
+  - Real production data now accumulating going forward — the model's
+    calibrated probabilities can finally be checked against what actually
+    happened, not just against historical folds.
 
 - **2026-07-21 (`docs/confirm_and_reconcile.md` — confirm 0b's remaining steps, reconcile stale legacy-financials guidance)**:
   Not new feature work — closing loose ends before building further on

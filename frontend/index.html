@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nifty Alpha Predictor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <nav class="sidebar" id="sidebar" aria-label="Sections">
+    <div class="sidebar-title">NIFTY ALPHA<br>PREDICTOR</div>
+    <button class="nav-item" data-section="home" aria-current="page">Home</button>
+    <button class="nav-item" data-section="overview">Overview</button>
+    <button class="nav-item" data-section="statistical">Statistical View</button>
+    <button class="nav-item" data-section="compare">Other Stocks &mdash; To Compare</button>
+  </nav>
+
+  <div class="main-column">
+
+    <header id="ticker-header" class="ticker-header" hidden>
+      <div class="ticker-value-block">
+        <div class="ticker-eyebrow">NIFTY 50 &middot; EOD INDEX VALUE</div>
+        <div id="ticker-value" class="ticker-value skeleton">&nbsp;</div>
+      </div>
+      <div class="ticker-meta-block">
+        <div id="ticker-change" class="ticker-change"></div>
+        <div id="ticker-date" class="ticker-date"></div>
+      </div>
+    </header>
+
+    <main>
+
+      <!-- ================= HOME ================= -->
+      <section id="section-home" class="app-section home-section">
+        <h1 class="home-title">Nifty Alpha Predictor</h1>
+        <p class="home-copy">
+          Nifty Alpha Predictor screens the Nifty 500 for stocks with a higher modeled
+          probability of outperforming the index over 14- and 30-day windows, built around
+          the idea that low-institutional-attention stocks with decent liquidity are more
+          likely to be mispriced. Outputs are probability estimates from a walk-forward
+          validated model, not guarantees &mdash; pick a section on the left to explore.
+        </p>
+        <button class="home-cta" data-goto="overview">Go to Overview &rarr;</button>
+      </section>
+
+      <!-- ================= OVERVIEW (existing build, unchanged behavior) ================= -->
+      <section id="section-overview" class="app-section" hidden>
+
+        <section id="screen-picker" class="screen">
+          <div class="picker-tiles" id="overview-picker-tiles">
+            <button class="picker-tile" data-horizon="14d" aria-label="View 14 day candidates">
+              <div class="picker-label">14D</div>
+              <div class="picker-caption">SHORT HORIZON</div>
+              <p class="picker-description">More sensitive to liquidity, near-term surveillance flags and short-window volatility.</p>
+              <div class="picker-cta">VIEW 14D CANDIDATES &rarr;</div>
+            </button>
+            <button class="picker-tile" data-horizon="30d" aria-label="View 30 day candidates">
+              <div class="picker-label">30D</div>
+              <div class="picker-caption">LONG HORIZON</div>
+              <p class="picker-description">Weighted more by institutional holding shifts, sector regime and slower-moving signals.</p>
+              <div class="picker-cta">VIEW 30D CANDIDATES &rarr;</div>
+            </button>
+          </div>
+          <div id="picker-footnote" class="picker-footnote skeleton">&nbsp;</div>
+        </section>
+
+        <section id="screen-deck" class="screen" hidden>
+          <div class="deck-topbar">
+            <button id="back-button" class="back-button" aria-label="Back to horizon picker">
+              <span aria-hidden="true">&larr;</span> BACK
+            </button>
+            <div id="deck-title" class="deck-title"></div>
+            <div id="deck-count" class="deck-count"></div>
+          </div>
+          <div id="deck-grid" class="deck-grid"></div>
+          <div id="deck-empty" class="deck-empty" hidden>No candidates cleared the probability threshold for this horizon today.</div>
+        </section>
+
+      </section>
+
+      <!-- ================= STATISTICAL VIEW ================= -->
+      <section id="section-statistical" class="app-section" hidden>
+
+        <div id="stat-picker" class="screen">
+          <div class="picker-tiles" id="stat-picker-tiles">
+            <button class="picker-tile" data-horizon="14d" aria-label="View 14 day tracking table">
+              <div class="picker-label">14D</div>
+              <div class="picker-caption">SHORT HORIZON</div>
+              <p class="picker-description">Day-by-day realized performance of the 14D picks since they were made.</p>
+              <div class="picker-cta">VIEW 14D TRACKING &rarr;</div>
+            </button>
+            <button class="picker-tile" data-horizon="30d" aria-label="View 30 day tracking table">
+              <div class="picker-label">30D</div>
+              <div class="picker-caption">LONG HORIZON</div>
+              <p class="picker-description">Day-by-day realized performance of the 30D picks since they were made.</p>
+              <div class="picker-cta">VIEW 30D TRACKING &rarr;</div>
+            </button>
+          </div>
+        </div>
+
+        <div id="stat-table-screen" class="screen" hidden>
+          <div class="deck-topbar">
+            <button id="stat-back-button" class="back-button" aria-label="Back to horizon picker">
+              <span aria-hidden="true">&larr;</span> BACK
+            </button>
+            <div id="stat-title" class="deck-title"></div>
+            <div id="stat-pick-date" class="deck-count"></div>
+          </div>
+          <div class="stat-table-wrap">
+            <table id="stat-table" class="stat-table"></table>
+          </div>
+          <div id="stat-empty" class="deck-empty" hidden>No live picks logged for this horizon yet.</div>
+        </div>
+
+      </section>
+
+      <!-- ================= OTHER STOCKS -- TO COMPARE ================= -->
+      <section id="section-compare" class="app-section" hidden>
+
+        <div class="compare-search-row">
+          <div class="compare-search-block">
+            <input id="compare-search-1" class="compare-search" type="text"
+                   placeholder="Search a stock by name or ticker&hellip;" autocomplete="off"
+                   role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="compare-dropdown-1">
+            <ul id="compare-dropdown-1" class="compare-dropdown" hidden role="listbox"></ul>
+          </div>
+          <button id="compare-add-button" class="compare-add-button" hidden>+ Add stock to compare</button>
+        </div>
+
+        <div class="compare-search-row" id="compare-search-row-2" hidden>
+          <div class="compare-search-block">
+            <input id="compare-search-2" class="compare-search" type="text"
+                   placeholder="Search a second stock&hellip;" autocomplete="off"
+                   role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="compare-dropdown-2">
+            <ul id="compare-dropdown-2" class="compare-dropdown" hidden role="listbox"></ul>
+          </div>
+          <button id="compare-remove-button" class="compare-add-button" aria-label="Remove second stock">&times; Remove</button>
+        </div>
+
+        <div id="compare-empty" class="deck-empty">Search for a stock to see its trailing performance.</div>
+        <div id="compare-cards" class="compare-cards"></div>
+
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

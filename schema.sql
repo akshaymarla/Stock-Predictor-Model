@@ -581,3 +581,40 @@ CREATE TABLE IF NOT EXISTS model_feature_matrix (
     PRIMARY KEY (symbol, date)
 );
 CREATE INDEX IF NOT EXISTS idx_feature_matrix_date ON model_feature_matrix(date);
+
+-- Live pick-tracking record -- tracking_dashboard_spec.md. Turns
+-- weekly_shortlist.py's one-shot output into a genuine out-of-sample
+-- track record: what did the model say about this stock, back when it
+-- said it, and did that actually pan out. One row per (symbol, horizon,
+-- pick_date), written once by src/log_shortlist_picks.py at
+-- shortlist-generation time and NEVER rewritten after that -- if a
+-- future retrain changed calibrated_prob_at_pick/top_factors_json
+-- retroactively, there would be no honest record left of what the model
+-- actually claimed at pick time, which is the entire point of this
+-- table. Resolution fields are filled in later, once, by
+-- src/resolve_tracked_picks.py -- see that script for why
+-- target_close_date stored here is a calendar-day ESTIMATE, not the
+-- exact trading-day date (corrected to the exact date at resolution
+-- time).
+CREATE TABLE IF NOT EXISTS tracked_picks (
+    symbol              TEXT NOT NULL,
+    horizon             TEXT NOT NULL,   -- '14d' | '30d'
+    pick_date           TEXT NOT NULL,   -- the scoring/rebalance date this pick was made on
+    entry_price         REAL NOT NULL,   -- close on pick_date, or latest close before it (backtest.py's price_at_or_before)
+    raw_prob_at_pick    REAL NOT NULL,
+    calibrated_prob_at_pick REAL NOT NULL,
+    top_factors_json    TEXT,            -- frozen snapshot of the SHAP explanation AT PICK TIME -- never recomputed with a later model
+    target_close_date   TEXT NOT NULL,   -- estimate at insert time; resolve_tracked_picks.py overwrites with the exact trading-day date
+    status              TEXT NOT NULL DEFAULT 'open',  -- 'open' | 'resolved' | 'delisted_during_hold'
+    -- resolution fields, NULL until status != 'open'
+    exit_price          REAL,
+    actual_stock_return REAL,
+    actual_nifty_return REAL,
+    actual_alpha        REAL,
+    outperformed_flag   INTEGER,         -- 0/1, NULL while open
+    resolved_at         TEXT,
+    fetched_at          TEXT NOT NULL,
+    PRIMARY KEY (symbol, horizon, pick_date)
+);
+CREATE INDEX IF NOT EXISTS idx_tracked_picks_status ON tracked_picks(status);
+CREATE INDEX IF NOT EXISTS idx_tracked_picks_target_close ON tracked_picks(target_close_date);

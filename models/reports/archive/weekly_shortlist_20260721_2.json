@@ -1,0 +1,85 @@
+{
+  "run_type": "weekly_shortlist",
+  "run_date": "2026-07-21",
+  "git_commit": "040644a",
+  "notes": "",
+  "scoring_date": "2026-07-15",
+  "universe": {
+    "index_membership_snapshot_date": "2026-07-14",
+    "total_in_snapshot": 500,
+    "excluded_surveillance": 11,
+    "excluded_no_recent_price_data": 0,
+    "excluded_illiquid_bottom_decile": 49,
+    "eligible": 440
+  },
+  "regime": {
+    "as_of_date": "2026-07-15",
+    "india_vix_close": 13.27,
+    "vix_percentile_1y": 0.6190476190476191,
+    "nifty50_dist_50dma_pct": 1.0403,
+    "nifty50_return_10d": 0.3026,
+    "flags": [],
+    "note": "informational only -- does not filter or block the shortlist"
+  },
+  "horizons": {
+    "30d": {
+      "model_train_start": "2021-07-16",
+      "model_train_end": "2026-01-16",
+      "calib_start": "2026-03-02",
+      "calib_end": "2026-06-02",
+      "calib_auc_raw": 0.6088335644149788,
+      "top_10_shortlist": [
+        {
+          "rank": 1,
+          "symbol": "RKFORGE",
+          "calibrated_prob": 0.7781501340482574
+        },
+        {
+          "rank": 2,
+          "symbol": "HINDPETRO",
+          "calibrated_prob": 0.7781501340482574
+        },
+        {
+          "rank": 3,
+          "symbol": "CHOLAHLDNG",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 4,
+          "symbol": "OFSS",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 5,
+          "symbol": "TORNTPOWER",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 6,
+          "symbol": "CANHLIFE",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 7,
+          "symbol": "SWIGGY",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 8,
+          "symbol": "BHARTIARTL",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 9,
+          "symbol": "AARTIIND",
+          "calibrated_prob": 0.7633262260127932
+        },
+        {
+          "rank": 10,
+          "symbol": "PETRONET",
+          "calibrated_prob": 0.7562929061784897
+        }
+      ]
+    }
+  }
+}

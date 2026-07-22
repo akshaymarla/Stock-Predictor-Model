@@ -69,4 +69,9 @@ python3 src/compute_target_labels.py
 echo "--- Recomputing feature matrix ---"
 python3 src/assemble_feature_matrix.py
 
+echo "--- Resolving tracked picks past their hold period ---"
+# tracking_dashboard_spec.md Section 4 -- cheap, idempotent (only touches
+# still-open rows), safe to run every night even though shortlists are weekly
+python3 src/resolve_tracked_picks.py
+
 echo "=== Nightly run complete: $(date) ==="
