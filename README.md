@@ -280,6 +280,25 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-22 (root-cause fix: nightly single-day fetch now uses bhavcopy, not stock_df)**:
+  Direct follow-up to the date-shift incident below -- fixing tonight's
+  already-corrupted data wasn't enough, since `run_nightly.sh`'s newly
+  installed permanent 9pm cron would have reintroduced the exact same
+  -1-day shift every single night going forward (it calls
+  `fetch_daily_prices.py` with no args, which was the confirmed-buggy
+  `stock_df` path). `fetch_daily_prices.py`'s plain no-args invocation
+  now routes through a new `fetch_today_via_bhavcopy()` instead -- one
+  bhavcopy request for the whole universe per day, rather than ~500
+  individual `stock_df` requests, so this is both correct (bhavcopy's
+  dates are reliable once the UDiFF-format parser fix below is in place)
+  and meaningfully cheaper. Verified live: 500 rows in a single request,
+  correct date, no shift. `stock_df`/`fetch_symbol()` are unchanged and
+  still used for explicit `--symbols`/`--years` calls (ad-hoc lookups,
+  historical range backfills) where a single day's bhavcopy file isn't
+  the right tool -- the module docstring now flags plainly that any date
+  written via that remaining path is suspect (confirmed off by one day)
+  until fixed at the source, which isn't possible from our side.
+
 - **2026-07-22 (real bug: `stock_df` dates were shifted -1 day; NSE's bhavcopy format changed; Lot 2 redone)**:
   User reported stock prices on the site looked like next-day values
   labeled under the wrong date. Investigated by cross-referencing against
