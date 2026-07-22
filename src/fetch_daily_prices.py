@@ -49,6 +49,21 @@ having same-day data yet -- but the error is at least readable now. If
 run_nightly.sh's 9pm IST schedule still hits this, NSE's historical API may
 be slower to update than assumed; try a later cron time.
 
+CONFIRMED REAL BUG, NOT JUST A GOTCHA (2026-07-22): stock_df()/fetch_symbol()
+labels every returned row's date ONE CALENDAR DAY EARLIER than the true
+trade date -- proven by cross-referencing true bhavcopy closes for
+RELIANCE across a full week against what stock_df had stored: identical
+values, one-day offset, every single date. This is why the plain nightly
+invocation (no args) below now goes through fetch_today_via_bhavcopy()
+instead of this function entirely -- see that function's docstring.
+fetch_symbol()/stock_df ARE STILL USED for explicit --symbols/--years
+calls (ad-hoc lookups, historical range backfills) where a single day's
+bhavcopy file doesn't apply -- any date written via THAT path should be
+treated as suspect (off by one day) until this is fixed at the source,
+which isn't possible from our side (jugaad_data is a pip dependency, and
+the shift is upstream of the DATE field this script reads, not something
+fixable by filtering the response like the series="ALL" bug above).
+
 Usage:
     # nightly use -- no args needed: full index_membership universe, today only
     python src/fetch_daily_prices.py
@@ -68,7 +83,9 @@ import time
 from datetime import datetime, timedelta
 
 import pandas as pd
+from jugaad_data.nse import NSEArchives
 
+from backfill_price_gaps import fetch_bhavcopy_rows, recompute_rolling_avg
 from db import get_conn, get_universe
 
 try:
@@ -207,6 +224,48 @@ def upsert(conn, df: pd.DataFrame, fetched_at: str):
     conn.commit()
 
 
+def fetch_today_via_bhavcopy(conn, symbols: list, dt) -> int:
+    """The nightly (no-args) single-day full-universe fetch, via NSE's
+    bhavcopy settlement archive instead of stock_df -- confirmed 2026-07-22
+    that stock_df's per-row date was uniformly one calendar day EARLIER
+    than the true trade date (proven by cross-referencing true bhavcopy
+    closes against what stock_df had stored, for a full week of dates --
+    identical values, one-day offset, every date). One bhavcopy request
+    covers the whole universe for a day, vs. ~500 stock_df requests, so
+    this is both more correct AND far cheaper for exactly this use case.
+    stock_df/fetch_symbol() is left in place below for its own documented
+    use cases (--symbols ad-hoc lookups, --years historical backfills)
+    where a single day's bhavcopy file doesn't apply.
+
+    Returns the number of rows upserted (0 if bhavcopy has nothing yet
+    for `dt` -- e.g. run before NSE has published that day's settlement
+    file -- in which case the caller should treat this as "nothing to do
+    tonight", not an error, same as stock_df's own documented same-day
+    lag)."""
+    arc = NSEArchives()
+    rows = fetch_bhavcopy_rows(arc, dt, set(symbols))
+    if not rows:
+        return 0
+    conn.executemany(
+        """
+        INSERT INTO daily_prices
+            (symbol, date, open, high, low, close, prev_close,
+             volume, delivery_qty, delivery_pct, source, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol, date) DO UPDATE SET
+            open=excluded.open, high=excluded.high, low=excluded.low,
+            close=excluded.close, prev_close=excluded.prev_close,
+            volume=excluded.volume, delivery_qty=excluded.delivery_qty,
+            delivery_pct=excluded.delivery_pct,
+            source=excluded.source, fetched_at=excluded.fetched_at
+        """,
+        rows,
+    )
+    conn.commit()
+    recompute_rolling_avg(conn, {r[0] for r in rows})
+    return len(rows)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", nargs="+",
@@ -243,6 +302,25 @@ def main():
             sys.exit(1)
         print(f"No --symbols given -- using the full Nifty 500 universe "
               f"from index_membership ({len(symbols)} symbols).")
+
+    # the plain nightly invocation (no args at all -- run_nightly.sh's exact
+    # call) goes through bhavcopy instead of the stock_df loop below -- see
+    # fetch_today_via_bhavcopy()'s docstring for why. Any explicit arg
+    # (--symbols/--years/--from-date/--to-date) keeps the original stock_df
+    # path, since bhavcopy is one-request-per-DAY (fine for "today", not a
+    # good fit for a --years multi-day range or a targeted --symbols lookup).
+    if not args.symbols and not args.years and not args.from_date and not args.to_date:
+        print(f"Nightly mode (no explicit args) -- fetching {today:%Y-%m-%d} via bhavcopy "
+              f"for the full universe in one request...")
+        n = fetch_today_via_bhavcopy(conn, symbols, today.date())
+        if n == 0:
+            print(f"NSE has no bhavcopy settlement file for {today:%Y-%m-%d} yet "
+                  f"(usually published a few hours after market close, or it's a "
+                  f"holiday/weekend) -- nothing to do tonight.", file=sys.stderr)
+            sys.exit(1)
+        print(f"Done. Loaded {n} rows into daily_prices ({DB_PATH_MSG})")
+        check_price_jump_anomalies(conn, symbols)
+        return
 
     all_frames = []
 
