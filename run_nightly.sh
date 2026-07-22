@@ -31,6 +31,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# cron/launchd invoke this with a minimal environment that does NOT source
+# .zshrc/.bashrc -- bare `python3` there resolves to the system Python,
+# which lacks requests/lightgbm/shap/pandas/etc (confirmed the hard way,
+# 2026-07-22: every manual run this session needed this exact PATH prepended
+# by hand). Prepending explicitly here makes the script correct regardless
+# of how/where it's invoked from, instead of relying on the calling
+# environment already having this set up.
+export PATH="/Users/akshaymarla/opt/anaconda3/bin:$PATH"
+
 mkdir -p logs
 
 echo "=== Nightly run: $(date) ==="

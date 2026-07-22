@@ -194,9 +194,11 @@ def load_daily_series(conn, symbols: list, start_date: str, end_date: str) -> di
 def build_horizon_tracking(conn, pick_date: str, symbols: list, n_days: int, calendar: list, scoring_date: str) -> dict:
     """Day-by-day realized (never predicted) close + day-over-day % change
     for one lot's one horizon, for the exact `symbols` frozen into that
-    lot at `pick_date`. Used by freeze_lot.py at freeze time -- this
-    script itself no longer computes tracking live, it just reads back
-    whatever freeze_lot.py already froze (see load_site_lots())."""
+    lot at `pick_date`. Used both by freeze_lot.py (initial snapshot at
+    freeze time) and by load_site_lots() below (recomputed fresh on
+    every export, so real elapsed days keep filling in after a lot is
+    made -- see that function's docstring for why the freeze-time-only
+    snapshot was wrong)."""
     calendar_idx = {d: i for i, d in enumerate(calendar)}
     trading_days = build_trading_day_columns(pick_date, n_days, calendar)
 
@@ -270,14 +272,38 @@ def build_lot_candidates(conn, horizon_label: str, pick_date: str) -> list:
     return candidates
 
 
-def load_site_lots(max_lots: int = MAX_SITE_LOTS) -> list:
-    """Most recent `max_lots` frozen lots, read back from disk exactly as
-    freeze_lot.py wrote them -- never recomputed here. models/lots/ keeps
-    every lot ever made forever; only the site's exposure is capped."""
+HORIZON_DAYS = {"14d": 14, "30d": 30}
+
+
+def load_site_lots(conn, calendar: list, scoring_date: str, max_lots: int = MAX_SITE_LOTS) -> list:
+    """Most recent `max_lots` frozen lots, read back from disk -- but
+    with `tracking` (realized day-by-day closes) recomputed fresh every
+    time, never left as whatever freeze_lot.py happened to see at
+    freeze time. `candidates` (the actual picks/probabilities) stay
+    exactly as frozen -- untouched here -- since those must never change
+    after the fact. `tracking` is different in kind: it's just reporting
+    real market closes that keep happening after a lot is made, so
+    "frozen" was never the right word for it -- a lot made a week ago
+    should show a week of real elapsed days, not the single day that had
+    happened by the time it was frozen. (Found 2026-07-22: Lot 1's
+    tracking table was stuck showing only its freeze-day snapshot even
+    after a week of real trading days had elapsed, because freeze_lot.py
+    had baked a one-time tracking snapshot into the lot file and nothing
+    ever recomputed it.) The on-disk lot_*.json files are left as
+    freeze_lot.py wrote them either way -- this only affects what gets
+    embedded into data.js."""
     paths = sorted(LOTS_DIR.glob("lot_*.json")) if LOTS_DIR.exists() else []
     lots = [json.loads(p.read_text()) for p in paths]
     lots.sort(key=lambda lot: lot["lot_number"])
-    return lots[-max_lots:]
+    lots = lots[-max_lots:]
+
+    for lot in lots:
+        for horizon_label, n_days in HORIZON_DAYS.items():
+            symbols = [c["ticker"] for c in lot["candidates"].get(horizon_label, [])]
+            if symbols:
+                lot["tracking"][horizon_label] = build_horizon_tracking(
+                    conn, lot["pick_date"], symbols, n_days, calendar, scoring_date)
+    return lots
 
 
 def period_cell(close, actual_date, last_close):
@@ -355,7 +381,7 @@ def main():
     calendar = [r[0] for r in conn.execute("SELECT date FROM macro_regime_indicators ORDER BY date").fetchall()]
     print(f"Live display data as of: {scoring_date}")
 
-    lots = load_site_lots()
+    lots = load_site_lots(conn, calendar, scoring_date)
     total_lots = len(list(LOTS_DIR.glob("lot_*.json"))) if LOTS_DIR.exists() else 0
     print(f"Embedding {len(lots)} most recent lot(s) on the site "
           f"(lot_number {[l['lot_number'] for l in lots]}) -- {total_lots} total ever frozen in {LOTS_DIR}")

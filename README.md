@@ -280,6 +280,47 @@ sqlite3 data/nifty_pipeline.db "SELECT * FROM surveillance_flags LIMIT 5;"
 
 ## Changelog
 
+- **2026-07-22 (Lot tracking wasn't refreshing; `run_nightly.sh` made permanent/cron-robust)**:
+  - **Real bug**: `freeze_lot.py` computed each lot's day-by-day
+    `tracking` table once, at freeze time, and baked it into the frozen
+    lot file forever -- so Lot 1's tracking stayed stuck showing only
+    its freeze-day snapshot even after a week of real trading days had
+    actually elapsed. `candidates` (the picks/probabilities) are
+    correctly meant to freeze forever; `tracking` never should have --
+    it's just reporting real market closes that keep happening. Fixed:
+    `export_screener_data.py`'s `load_site_lots()` now recomputes
+    `tracking` fresh from the live DB on every export (using each lot's
+    frozen `candidates` for the symbol list + `pick_date`), for every lot
+    currently shown on the site, not just the newest. The on-disk
+    `models/lots/*.json` files are untouched by this -- only what gets
+    embedded into `data.js` changes. Verified: Lot 1 now correctly shows
+    real closes for D+0 through D+4 (07-15 through 07-21) and `null`
+    beyond, matching how far the confirmed data actually extends.
+  - **`run_nightly.sh` now cron-robust**: explicitly exports the correct
+    `PATH` (anaconda's `python3`, which has requests/lightgbm/shap/pandas
+    -- the bare system `python3` doesn't) at the top of the script,
+    rather than relying on the invoking environment already having this
+    set up. This was a real, confirmed gap -- every manual run this
+    session needed the same PATH prepended by hand, and cron/launchd
+    invoke scripts with a minimal environment that does NOT source
+    `.zshrc`/`.bashrc`, so the crontab below would have silently failed
+    on `ModuleNotFoundError` without this. Verified by simulating a
+    stripped `env -i` environment before installing the real crontab.
+  - **Direct instruction: made the 9pm run permanent**, not one-off --
+    installed the exact crontab line `run_nightly.sh`'s own header
+    comment had been documenting as the intended eventual schedule since
+    2026-07-16: `0 21 * * 1-5` (9pm IST, Mon-Fri). `weekly_shortlist.py`
+    (the only thing that creates a NEW lot) is deliberately still NOT
+    part of this script -- the nightly run keeps prices/tracking/Compare
+    fresh every night regardless, but a new lot only gets made on an
+    explicit trigger, unchanged from the earlier "freeze until told"
+    instruction. **Known caveat, not yet verified**: modern macOS often
+    requires Full Disk Access be granted (System Settings → Privacy &
+    Security) to whatever runs `cron` before scheduled jobs actually
+    fire -- not something checkable or grantable from here. If
+    `logs/nightly.log` doesn't show a run the next morning, check that
+    first.
+
 - **2026-07-22 (first real production run — hit 3 real bugs, all fixed, Lot 2 made for real)**:
   The scheduled 9pm run never fired (Mac rebooted ~20:41, killing the
   background `sleep`/`caffeinate` job — a real limitation of that
